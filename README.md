@@ -7,7 +7,9 @@ The code is provided in Jupyter notebooks and can be run directly on **Google Co
 
 CLIP is a model developed by OpenAI that learns visual concepts from natural language supervision.  
 In this project, we explore its capabilities for connecting images and text through contrastive learning.  
-This repo is meant as a starting point for hands-on practice with vision-language models.
+This repo is meant as a starting point for hands-on practice with vision-language models.  
+
+In addition to CLIP, the repository also includes notebooks on **basic CNNs, object detection, semantic segmentation, instance segmentation, and YOLO using PyTorch**.
 
 ## Getting Started
 
@@ -18,6 +20,6 @@ This repo is meant as a starting point for hands-on practice with vision-languag
    pip install git+https://github.com/openai/CLIP.git
 
 ## Copyright (C) 
-OpenCV-University
-2000-2025, OpenCV.org
+OpenCV-University  
+2000-2025, OpenCV.org  
 All rights reserved.
