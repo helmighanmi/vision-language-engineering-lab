@@ -19,8 +19,8 @@ from ..utils import to_image_reference
 class QwenVLModel:
     """Run Qwen3-VL from a Hugging Face model ID or a local model directory.
 
-    `trust_remote_code` defaults to False. Current Qwen3-VL is integrated into
-    Transformers and does not require remote custom Python code for normal use.
+    ``trust_remote_code`` defaults to ``False``. Current Qwen3-VL is integrated
+    into Transformers and does not require remote custom Python code for normal use.
     """
 
     def __init__(
@@ -55,9 +55,11 @@ class QwenVLModel:
             raise FileNotFoundError(path)
         return cls(str(path), local_files_only=True, **kwargs)
 
-    def _ensure_loaded(self) -> None:
+    def _ensure_loaded(self) -> tuple[Any, Any]:
+        """Load and return ``(model, processor)`` exactly once."""
         if self._model is not None and self._processor is not None:
-            return
+            return self._model, self._processor
+
         try:
             from transformers import AutoModelForMultimodalLM, AutoProcessor
         except ImportError as exc:
@@ -80,6 +82,11 @@ class QwenVLModel:
         except Exception as exc:  # pragma: no cover - backend/hardware specific
             raise ModelLoadError(f"Unable to load model from {self.model_source!r}: {exc}") from exc
 
+        if self._model is None or self._processor is None:  # defensive guard
+            raise ModelLoadError(f"Unable to load model from {self.model_source!r}.")
+
+        return self._model, self._processor
+
     def generate(
         self,
         image: str | Path,
@@ -89,7 +96,7 @@ class QwenVLModel:
         max_new_tokens: int = 512,
     ) -> str:
         """Generate a text response grounded in one image."""
-        self._ensure_loaded()
+        model, processor = self._ensure_loaded()
         image_ref = to_image_reference(image)
         messages: list[dict[str, Any]] = []
         if system_prompt:
@@ -105,13 +112,13 @@ class QwenVLModel:
                 ],
             }
         )
-        inputs = self._processor.apply_chat_template(
+        inputs = processor.apply_chat_template(
             messages,
             add_generation_prompt=True,
             tokenize=True,
             return_dict=True,
             return_tensors="pt",
-        ).to(self._model.device)
-        outputs = self._model.generate(**inputs, max_new_tokens=max_new_tokens)
+        ).to(model.device)
+        outputs = model.generate(**inputs, max_new_tokens=max_new_tokens)
         generated = outputs[0][inputs["input_ids"].shape[-1] :]
-        return self._processor.decode(generated, skip_special_tokens=True).strip()
+        return processor.decode(generated, skip_special_tokens=True).strip()

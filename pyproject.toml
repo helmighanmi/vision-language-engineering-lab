@@ -5,28 +5,75 @@
 # Research Profile: https://www.researchgate.net/profile/Ghanmi-Helmi
 
 [build-system]
-requires = ["setuptools>=83", "wheel"]
+requires = [
+  "setuptools>=83",
+  "wheel",
+]
 build-backend = "setuptools.build_meta"
+
 
 [project]
 name = "vision-language-engineering-lab"
 version = "1.0.0"
 description = "Production-oriented Vision-Language engineering with CLIP, Qwen3-VL, visual document understanding and multimodal RAG."
 readme = "README.md"
+
 requires-python = ">=3.12,<3.13"
+
 license = "Apache-2.0"
-authors = [{name = "GHANMI Helmi"}]
-keywords = ["vision-language-model", "clip", "qwen3-vl", "multimodal-rag", "document-ai"]
-dependencies = [
-  "numpy>=1.26,<3",
-  "pillow>=10,<12",
+
+authors = [
+  { name = "GHANMI Helmi" },
 ]
 
+keywords = [
+  "vision-language-model",
+  "vlm",
+  "multimodal-ai",
+  "clip",
+  "qwen3-vl",
+  "multimodal-rag",
+  "visual-rag",
+  "document-ai",
+  "image-retrieval",
+]
+
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Intended Audience :: Developers",
+  "Intended Audience :: Science/Research",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+
+
+# ---------------------------------------------------------------------------
+# Core dependencies
+# ---------------------------------------------------------------------------
+
+dependencies = [
+  "numpy>=1.26,<3",
+
+  # Pillow 12.3+ fixes known vulnerabilities affecting older releases.
+  "pillow>=12.3,<13",
+]
+
+
+# ---------------------------------------------------------------------------
+# Optional dependencies
+# ---------------------------------------------------------------------------
+
 [project.optional-dependencies]
+
+# CLIP examples and inference.
 clip = [
   "torch>=2.8,<3",
   "transformers>=4.57,<6",
 ]
+
+
+# Qwen3-VL generative inference.
 qwen = [
   "accelerate>=1.10,<2",
   "huggingface-hub>=0.34,<2",
@@ -34,22 +81,33 @@ qwen = [
   "torch>=2.8,<3",
   "transformers>=4.57,<6",
 ]
+
+
+# Text and multimodal retrieval, embedding and reranking.
 retrieval = [
   "sentence-transformers>=5.4,<6",
 ]
+
+
+# Jupyter / analysis environment.
 notebooks = [
   "jupyterlab>=4,<5",
   "matplotlib>=3.9,<4",
   "pandas>=2.2,<3",
 ]
+
+
+# Development and CI quality gates.
 dev = [
   "mypy>=1.18,<2",
   "pip-audit>=2.9,<3",
   "pytest>=8,<9",
   "pytest-cov>=6,<8",
   "ruff>=0.12,<1",
-  "types-Pillow>=10,<12",
 ]
+
+
+# Complete production feature set.
 all = [
   "accelerate>=1.10,<2",
   "huggingface-hub>=0.34,<2",
@@ -59,38 +117,92 @@ all = [
   "transformers>=4.57,<6",
 ]
 
+
+# ---------------------------------------------------------------------------
+# Command-line interface
+# ---------------------------------------------------------------------------
+
 [project.scripts]
 vlm-lab = "vlm_engineering.cli:main"
 
+
+# ---------------------------------------------------------------------------
+# Package configuration
+# ---------------------------------------------------------------------------
+
 [tool.setuptools]
-package-dir = {"" = "src"}
+package-dir = { "" = "src" }
 
 [tool.setuptools.packages.find]
 where = ["src"]
 
+
+# ---------------------------------------------------------------------------
+# Pytest
+# ---------------------------------------------------------------------------
+
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+testpaths = [
+  "tests",
+]
 addopts = "-ra -q"
+
+
+# ---------------------------------------------------------------------------
+# Ruff
+# ---------------------------------------------------------------------------
 
 [tool.ruff]
 target-version = "py312"
 line-length = 110
-extend-exclude = ["legacy", "notebooks"]
+
+extend-exclude = [
+  ".venv",
+  "build",
+  "dist",
+  "legacy",
+  "notebooks",
+]
+
 
 [tool.ruff.lint]
-select = ["E4", "E7", "E9", "F", "B", "I"]
+select = [
+  "E4",
+  "E7",
+  "E9",
+  "F",
+  "B",
+  "I",
+]
+
+
+# ---------------------------------------------------------------------------
+# Mypy
+# ---------------------------------------------------------------------------
 
 [tool.mypy]
 python_version = "3.12"
+
 check_untyped_defs = true
 no_implicit_optional = true
 ignore_missing_imports = true
 warn_unused_configs = true
-packages = ["vlm_engineering"]
+
+packages = [
+  "vlm_engineering",
+]
+
+
+# ---------------------------------------------------------------------------
+# Coverage
+# ---------------------------------------------------------------------------
 
 [tool.coverage.run]
-source = ["vlm_engineering"]
+source = [
+  "vlm_engineering",
+]
 branch = true
+
 
 [tool.coverage.report]
 show_missing = true

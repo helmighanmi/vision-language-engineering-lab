@@ -9,12 +9,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Sequence
+from typing import Any, Sequence, cast
 
 import numpy as np
 
 from ..config import DEFAULT_CLIP_MODEL
-from ..exceptions import OptionalDependencyError
+from ..exceptions import ModelLoadError, OptionalDependencyError
 
 
 @dataclass(frozen=True, slots=True)
@@ -45,9 +45,11 @@ class CLIPEncoder:
         self._model = model
         self._processor = processor
 
-    def _ensure_loaded(self) -> None:
+    def _ensure_loaded(self) -> tuple[Any, Any]:
+        """Load and return ``(model, processor)`` exactly once."""
         if self._model is not None and self._processor is not None:
-            return
+            return self._model, self._processor
+
         try:
             import torch
             from transformers import CLIPModel, CLIPProcessor
@@ -57,9 +59,21 @@ class CLIPEncoder:
             ) from exc
 
         device = self.device or ("cuda" if torch.cuda.is_available() else "cpu")
-        self._processor = CLIPProcessor.from_pretrained(self.model_id)
-        self._model = CLIPModel.from_pretrained(self.model_id).to(device)
+
+        # Transformers' third-party type annotations can be stricter than the
+        # runtime factory API. Casting the classes to Any keeps our type checks
+        # focused on this project's public contract.
+        clip_model_cls = cast(Any, CLIPModel)
+        clip_processor_cls = cast(Any, CLIPProcessor)
+
+        self._processor = clip_processor_cls.from_pretrained(self.model_id)
+        self._model = clip_model_cls.from_pretrained(self.model_id).to(device)
         self.device = device
+
+        if self._model is None or self._processor is None:  # defensive guard
+            raise ModelLoadError(f"Unable to load CLIP model {self.model_id!r}.")
+
+        return self._model, self._processor
 
     @staticmethod
     def _normalize(array: np.ndarray) -> np.ndarray:
@@ -68,26 +82,26 @@ class CLIPEncoder:
 
     def encode_text(self, texts: Sequence[str]) -> np.ndarray:
         """Return normalized CLIP text embeddings."""
-        self._ensure_loaded()
+        model, processor = self._ensure_loaded()
         import torch
 
-        inputs = self._processor(text=list(texts), padding=True, return_tensors="pt")
+        inputs = processor(text=list(texts), padding=True, return_tensors="pt")
         if self.device:
             inputs = {key: value.to(self.device) for key, value in inputs.items()}
         with torch.inference_mode():
-            embeddings = self._model.get_text_features(**inputs)
+            embeddings = model.get_text_features(**inputs)
         return self._normalize(embeddings.detach().cpu().numpy())
 
     def encode_images(self, images: Sequence[Any]) -> np.ndarray:
         """Return normalized CLIP image embeddings."""
-        self._ensure_loaded()
+        model, processor = self._ensure_loaded()
         import torch
 
-        inputs = self._processor(images=list(images), return_tensors="pt")
+        inputs = processor(images=list(images), return_tensors="pt")
         if self.device:
             inputs = {key: value.to(self.device) for key, value in inputs.items()}
         with torch.inference_mode():
-            embeddings = self._model.get_image_features(**inputs)
+            embeddings = model.get_image_features(**inputs)
         return self._normalize(embeddings.detach().cpu().numpy())
 
     def similarity(self, texts: Sequence[str], images: Sequence[Any]) -> np.ndarray:
@@ -99,5 +113,8 @@ class CLIPEncoder:
         scores = self.similarity(labels, [image])[:, 0]
         exp = np.exp(scores - scores.max())
         probs = exp / exp.sum()
-        results = [ZeroShotPrediction(label, float(prob)) for label, prob in zip(labels, probs)]
+        results = [
+            ZeroShotPrediction(label, float(prob))
+            for label, prob in zip(labels, probs, strict=True)
+        ]
         return sorted(results, key=lambda item: item.probability, reverse=True)

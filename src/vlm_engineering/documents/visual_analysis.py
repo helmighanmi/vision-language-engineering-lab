@@ -36,7 +36,7 @@ Rules:
 
 
 class VisionGenerator(Protocol):
-    def generate(self, image: str, prompt: str, *, max_new_tokens: int = 512, **kwargs: object) -> str: ...
+    def generate(self, image: str, prompt: str, *, max_new_tokens: int = 512) -> str: ...
 
 
 def analyze_visual_document(generator: VisionGenerator, image_ref: str) -> VisualAnalysis:

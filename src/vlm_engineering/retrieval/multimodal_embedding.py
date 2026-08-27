@@ -13,7 +13,7 @@ from typing import Any, Sequence
 import numpy as np
 
 from ..config import DEFAULT_QWEN_EMBEDDING_MODEL
-from ..exceptions import OptionalDependencyError
+from ..exceptions import ModelLoadError, OptionalDependencyError
 
 
 class QwenMultimodalEmbedder:
@@ -30,22 +30,27 @@ class QwenMultimodalEmbedder:
         self.trust_remote_code = trust_remote_code
         self._model = model
 
-    def _ensure_loaded(self) -> None:
+    def _ensure_loaded(self) -> Any:
         if self._model is not None:
-            return
+            return self._model
+
         try:
             from sentence_transformers import SentenceTransformer
         except ImportError as exc:
             raise OptionalDependencyError(
                 'Install retrieval dependencies with: pip install -e ".[retrieval]"'
             ) from exc
+
         self._model = SentenceTransformer(
             self.model_id,
             trust_remote_code=self.trust_remote_code,
         )
+        if self._model is None:  # defensive guard
+            raise ModelLoadError(f"Unable to load multimodal embedder {self.model_id!r}.")
+        return self._model
 
     def encode(self, inputs: Sequence[Any], *, prompt: str | None = None) -> np.ndarray:
-        self._ensure_loaded()
+        model = self._ensure_loaded()
         kwargs = {"prompt": prompt} if prompt else {}
-        values = self._model.encode(list(inputs), **kwargs)
+        values = model.encode(list(inputs), **kwargs)
         return np.asarray(values, dtype=np.float32)
