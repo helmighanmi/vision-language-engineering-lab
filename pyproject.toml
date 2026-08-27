@@ -76,7 +76,7 @@ qwen = [
 ]
 
 retrieval = [
-  "sentence-transformers>=5.4,<6",
+  "sentence-transformers>=5.4,<7",
 ]
 
 notebooks = [
@@ -97,7 +97,7 @@ all = [
   "accelerate>=1.10,<2",
   "huggingface-hub>=0.34,<2",
   "qwen-vl-utils>=0.0.14,<1",
-  "sentence-transformers>=5.4,<6",
+  "sentence-transformers>=5.4,<7",
   "torch>=2.8,<3",
   "transformers>=4.57,<6",
 ]
