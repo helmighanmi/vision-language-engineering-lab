@@ -26,4 +26,3 @@ Research Profile: https://www.researchgate.net/profile/Ghanmi-Helmi
 - Added structured visual-document analysis, native+visual fusion and RAG-ready chunks.
 - Added text-only visual RAG plus Qwen multimodal embedding/reranking adapters.
 - Added CLI, examples, tests, Docker, CI/security workflows and bilingual teaching PDFs.
-- Preserved original notebooks under `legacy/` with third-party attribution guidance.

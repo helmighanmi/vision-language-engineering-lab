@@ -641,11 +641,10 @@ scenarios/               end-to-end application cookbook
 notebooks/               analysis/demonstration clients
 tests/                   deterministic unit/integration/contract tests
 docs/                    architecture, model-loading and RAG guidance
-legacy/                  previous educational notebooks isolated from maintained code
 models/                  explicitly downloaded weights (gitignored)
 data/                    user-provided images/pages (gitignored)
 ```
 
 ## License and third-party material
 
-New maintained project code is distributed under Apache-2.0. Model weights are downloaded separately and retain their own licenses. Historical notebooks are isolated under `legacy/`; see `THIRD_PARTY_NOTICES.md` before redistributing them.
+Project code is distributed under Apache-2.0. Model weights are downloaded separately and retain their respective licenses. Users are responsible for reviewing the license terms of any third-party models, datasets, or external assets they use with this package.
