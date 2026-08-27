@@ -84,3 +84,61 @@ def test_download_command_prints_destination(monkeypatch: pytest.MonkeyPatch, tm
     monkeypatch.setattr(cli, "download_model_snapshot", lambda *_args, **_kwargs: destination)
     assert cli.main(["download-model", "--output", str(destination)]) == 0
     assert capsys.readouterr().out.strip() == str(destination)
+
+
+def test_models_command_lists_presets(capsys: pytest.CaptureFixture[str]) -> None:
+    assert cli.main(["models"]) == 0
+    output = capsys.readouterr().out
+    assert "2b (default): Qwen/Qwen3-VL-2B-Instruct" in output
+    assert "4b: Qwen/Qwen3-VL-4B-Instruct" in output
+    assert "8b: Qwen/Qwen3-VL-8B-Instruct" in output
+
+
+def test_describe_accepts_model_size_preset(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    captured: dict[str, str | None] = {}
+
+    def fake_builder(args: object) -> FakeQwen:
+        captured["model_size"] = getattr(args, "model_size", None)
+        return FakeQwen()
+
+    monkeypatch.setattr(cli, "_build_qwen", fake_builder)
+    assert cli.main(["describe", "page.png", "--model-size", "4b"]) == 0
+    assert captured["model_size"] == "4b"
+    assert capsys.readouterr().out.strip() == "description:512"
+
+
+def test_model_selection_flags_are_mutually_exclusive() -> None:
+    with pytest.raises(SystemExit) as exc:
+        cli.main(
+            [
+                "describe",
+                "page.png",
+                "--model-size",
+                "4b",
+                "--model-id",
+                "Qwen/Qwen3-VL-8B-Instruct",
+            ]
+        )
+    assert exc.value.code == 2
+
+
+def test_download_model_size_uses_matching_default_directory(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_download(model_id: str, *, output_dir: Path, revision: str | None = None) -> Path:
+        captured["model_id"] = model_id
+        captured["output_dir"] = output_dir
+        captured["revision"] = revision
+        return output_dir
+
+    monkeypatch.setattr(cli, "download_model_snapshot", fake_download)
+    assert cli.main(["download-model", "--model-size", "4b"]) == 0
+    assert captured["model_id"] == "Qwen/Qwen3-VL-4B-Instruct"
+    assert captured["output_dir"] == Path("models/Qwen3-VL-4B-Instruct")
+    assert capsys.readouterr().out.strip() == "models/Qwen3-VL-4B-Instruct"

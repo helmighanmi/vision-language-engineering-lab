@@ -4,20 +4,23 @@
 # Past Role: Researcher in Applied Mathematics
 # Research Profile: https://www.researchgate.net/profile/Ghanmi-Helmi
 
-"""Qwen3-VL inference wrapper supporting Hub/cache and explicit local models."""
+"""Qwen3-VL inference wrapper supporting presets, Hub/cache and local models."""
 
 from __future__ import annotations
 
 from pathlib import Path
 from typing import Any
 
-from ..config import DEFAULT_QWEN_MODEL
 from ..exceptions import ModelLoadError, OptionalDependencyError
 from ..utils import to_image_reference
+from .registry import resolve_qwen_model_id
 
 
 class QwenVLModel:
-    """Run Qwen3-VL from a Hugging Face model ID or a local model directory.
+    """Run Qwen3-VL from a preset, Hugging Face model ID, or local directory.
+
+    With no arguments the package uses ``Qwen/Qwen3-VL-2B-Instruct``.
+    Friendly ``model_size`` aliases are available for ``2b``, ``4b`` and ``8b``.
 
     ``trust_remote_code`` defaults to ``False``. Current Qwen3-VL is integrated
     into Transformers and does not require remote custom Python code for normal use.
@@ -25,8 +28,9 @@ class QwenVLModel:
 
     def __init__(
         self,
-        model_source: str | Path = DEFAULT_QWEN_MODEL,
+        model_source: str | Path | None = None,
         *,
+        model_size: str | None = None,
         local_files_only: bool = False,
         device_map: str = "auto",
         dtype: str = "auto",
@@ -34,7 +38,17 @@ class QwenVLModel:
         model: Any | None = None,
         processor: Any | None = None,
     ) -> None:
-        self.model_source = str(model_source)
+        if model_source is not None and model_size is not None:
+            raise ValueError("Provide either model_source or model_size, not both.")
+
+        if model_source is None:
+            resolved_source = resolve_qwen_model_id(model_size=model_size)
+        else:
+            resolved_source = str(model_source)
+            if not resolved_source.strip():
+                raise ValueError("model_source must not be empty.")
+
+        self.model_source = resolved_source
         self.local_files_only = local_files_only
         self.device_map = device_map
         self.dtype = dtype
@@ -43,9 +57,14 @@ class QwenVLModel:
         self._processor = processor
 
     @classmethod
-    def from_hub(cls, model_id: str = DEFAULT_QWEN_MODEL, **kwargs: Any) -> "QwenVLModel":
-        """Create a Hub/cache-backed model loader."""
-        return cls(model_id, local_files_only=False, **kwargs)
+    def from_preset(cls, model_size: str = "2b", **kwargs: Any) -> "QwenVLModel":
+        """Create a loader from the supported ``2b``, ``4b`` or ``8b`` presets."""
+        return cls(model_size=model_size, local_files_only=False, **kwargs)
+
+    @classmethod
+    def from_hub(cls, model_id: str | None = None, **kwargs: Any) -> "QwenVLModel":
+        """Create a Hub/cache-backed loader for any compatible model ID."""
+        return cls(resolve_qwen_model_id(model_id=model_id), local_files_only=False, **kwargs)
 
     @classmethod
     def from_local(cls, model_path: str | Path, **kwargs: Any) -> "QwenVLModel":
@@ -96,6 +115,11 @@ class QwenVLModel:
         max_new_tokens: int = 512,
     ) -> str:
         """Generate a text response grounded in one image."""
+        if not prompt.strip():
+            raise ValueError("prompt must not be empty.")
+        if max_new_tokens <= 0:
+            raise ValueError("max_new_tokens must be greater than zero.")
+
         model, processor = self._ensure_loaded()
         image_ref = to_image_reference(image)
         messages: list[dict[str, Any]] = []

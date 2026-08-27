@@ -47,6 +47,12 @@ classifiers = [
   "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
 
+[project.urls]
+Homepage = "https://github.com/helmighanmi/vision-language-engineering-lab"
+Repository = "https://github.com/helmighanmi/vision-language-engineering-lab"
+Issues = "https://github.com/helmighanmi/vision-language-engineering-lab/issues"
+Documentation = "https://github.com/helmighanmi/vision-language-engineering-lab/tree/main/docs"
+
 
 # ---------------------------------------------------------------------------
 # Core dependencies
@@ -205,5 +211,6 @@ branch = true
 
 
 [tool.coverage.report]
+fail_under = 80
 show_missing = true
 skip_covered = true

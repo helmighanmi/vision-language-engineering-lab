@@ -16,11 +16,20 @@ from .documents.schemas import (
     VisualRelation,
 )
 from .qwen.model import QwenVLModel
+from .qwen.registry import (
+    DEFAULT_QWEN_MODEL_SIZE,
+    QWEN3_VL_INSTRUCT_MODELS,
+    QwenModelPreset,
+    resolve_qwen_model_id,
+)
 from .retrieval.rag import RAGAnswer, VisualRAGPipeline
 
 __all__ = [
     "CLIPEncoder",
+    "DEFAULT_QWEN_MODEL_SIZE",
     "NativePageContent",
+    "QWEN3_VL_INSTRUCT_MODELS",
+    "QwenModelPreset",
     "QwenVLModel",
     "RAGAnswer",
     "TextChunker",
@@ -31,4 +40,5 @@ __all__ = [
     "VisualRelation",
     "ZeroShotPrediction",
     "fuse_native_and_visual",
+    "resolve_qwen_model_id",
 ]

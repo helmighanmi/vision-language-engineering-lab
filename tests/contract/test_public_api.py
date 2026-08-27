@@ -60,6 +60,7 @@ def test_cli_exposes_expected_commands() -> None:
         "analyze",
         "chunk",
         "download-model",
+        "models",
     }
 
 

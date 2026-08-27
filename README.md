@@ -8,16 +8,18 @@ Research Profile: https://www.researchgate.net/profile/Ghanmi-Helmi
 
 # Vision-Language Engineering Lab
 
-**CLIP, Qwen3-VL, visual document understanding, semantic visual chunking and multimodal RAG.**
+**CLIP, configurable Qwen3-VL, visual document understanding, semantic visual chunking and multimodal RAG.**
 
-This repository is a production-oriented learning and engineering lab that moves from classic CLIP embeddings to modern generative Vision-Language Models and multimodal retrieval.
+This repository is a production-oriented learning and engineering lab that moves from classic CLIP embeddings to modern generative Vision-Language Models (VLMs), document understanding and multimodal retrieval.
+
+The reusable implementation lives under `src/vlm_engineering`. Notebooks are analysis/demo clients only.
 
 ## What this project demonstrates
 
 ```text
 CLIP foundations
    -> image/text embeddings and zero-shot similarity
-Qwen3-VL-2B-Instruct
+Qwen3-VL Instruct (2B / 4B / 8B or custom model ID)
    -> image description, VQA, diagram/table/screenshot understanding, structured JSON
 Document understanding
    -> native text + visual semantics -> traceable chunks
@@ -27,16 +29,34 @@ Multimodal RAG
    -> Qwen3-VL-Embedding -> retrieval -> Qwen3-VL-Reranker -> Qwen3-VL answer
 ```
 
-## Model roles
+## Qwen models used by this project
 
-| Model | Role in this repository |
+The default generative VLM is **`Qwen/Qwen3-VL-2B-Instruct`**. The package also provides friendly presets for the 4B and 8B Instruct variants, plus an escape hatch for any compatible Hugging Face model ID.
+
+| Preset | Hugging Face model | Size class | Recommended use |
+|---|---|---:|---|
+| `2b` | `Qwen/Qwen3-VL-2B-Instruct` | ~2B parameters | **Default.** Learning, local prototypes, lower resource use |
+| `4b` | `Qwen/Qwen3-VL-4B-Instruct` | ~4B parameters | Balanced quality/resource option |
+| `8b` | `Qwen/Qwen3-VL-8B-Instruct` | ~8B parameters | Higher-capacity inference on stronger hardware |
+
+Official model pages:
+
+- https://huggingface.co/Qwen/Qwen3-VL-2B-Instruct
+- https://huggingface.co/Qwen/Qwen3-VL-4B-Instruct
+- https://huggingface.co/Qwen/Qwen3-VL-8B-Instruct
+
+The size names are parameter classes, not exact memory requirements. A rough BF16 weight-only floor is about 2 bytes per parameter (~4 GB for 2B, ~8 GB for 4B, ~16 GB for 8B), but real inference needs additional memory for the vision encoder, activations, KV cache, image tokens and runtime overhead. Measure on your own workload before choosing a production size.
+
+Other Qwen models in the retrieval stack:
+
+| Model | Role |
 |---|---|
-| `openai/clip-vit-base-patch32` | shared image/text embeddings, similarity, zero-shot classification |
-| `Qwen/Qwen3-VL-2B-Instruct` | generative visual understanding and grounded answers |
-| `Qwen/Qwen3-VL-Embedding-2B` | multimodal retrieval embeddings through SentenceTransformers |
-| `Qwen/Qwen3-VL-Reranker-2B` | second-stage relevance scoring after retrieval |
+| `Qwen/Qwen3-VL-Embedding-2B` | multimodal retrieval embeddings |
+| `Qwen/Qwen3-VL-Reranker-2B` | second-stage candidate reranking |
 
-> Current Qwen3-VL is natively integrated into Hugging Face Transformers. `trust_remote_code` is disabled by default and is **not required** for the normal Qwen3-VL path implemented here.
+> Qwen3-VL is natively integrated into current Hugging Face Transformers. `trust_remote_code` is disabled by default and is **not required** for the normal Qwen3-VL path implemented here.
+
+---
 
 ## 1. Installation
 
@@ -44,8 +64,8 @@ Multimodal RAG
 
 - Python **3.12**
 - Git
-- Enough disk space for the models you choose to download
-- GPU strongly recommended for Qwen3-VL inference; CLIP can run on CPU for small experiments
+- Enough disk space for the model(s) you choose to download
+- GPU strongly recommended for Qwen3-VL; CLIP can run on CPU for small experiments
 
 ### Create a virtual environment
 
@@ -67,13 +87,13 @@ python -m pip install --upgrade pip setuptools wheel
 
 ### Choose what to install
 
-Development / tests only:
+Development/tests only:
 
 ```bash
 python -m pip install -e ".[dev]"
 ```
 
-CLIP experiments:
+CLIP:
 
 ```bash
 python -m pip install -e ".[clip]"
@@ -91,103 +111,241 @@ Multimodal embedding/reranking:
 python -m pip install -e ".[retrieval]"
 ```
 
-Full project:
+Full repository environment:
 
 ```bash
 python -m pip install -e ".[all,dev,notebooks]"
 ```
 
-## 2. Qwen3-VL execution modes
+A compatibility `requirements.txt` is also included for users who prefer requirements files:
 
-### Option A - Hugging Face model ID / normal cache
+```bash
+python -m pip install -r requirements.txt
+```
 
-The first run downloads the model if it is not already cached. Later runs reuse the Hugging Face cache.
+`pyproject.toml` remains the dependency source of truth.
 
-Python:
+Confirm the CLI:
+
+```bash
+vlm-lab --help
+```
+
+---
+
+## 2. Quick start: choose your Qwen3-VL model
+
+List the built-in presets:
+
+```bash
+vlm-lab models
+```
+
+### Default: 2B
+
+No model flag is needed:
+
+```bash
+vlm-lab describe data/example.jpg \
+  --prompt "Describe this image precisely."
+```
+
+Equivalent Python:
 
 ```python
-from vlm_engineering.qwen import QwenVLModel
+from vlm_engineering import QwenVLModel
 
-model = QwenVLModel.from_hub("Qwen/Qwen3-VL-2B-Instruct")
-answer = model.generate("data/example.jpg", "Describe the image precisely.")
+model = QwenVLModel()  # Qwen/Qwen3-VL-2B-Instruct
+answer = model.generate("data/example.jpg", "Describe this image precisely.")
 print(answer)
 ```
+
+### Use the 4B preset
 
 CLI:
 
 ```bash
 vlm-lab describe data/example.jpg \
-  --prompt "Describe the image and list important visual details."
+  --model-size 4b \
+  --prompt "Describe the image and identify important relationships."
 ```
 
-### Option B - explicit download, then offline/local inference
+Python:
 
-Download once:
+```python
+from vlm_engineering import QwenVLModel
+
+model = QwenVLModel(model_size="4b")
+print(model.model_source)
+# Qwen/Qwen3-VL-4B-Instruct
+```
+
+### Use the 8B preset
 
 ```bash
-vlm-lab download-model \
-  --model-id Qwen/Qwen3-VL-2B-Instruct \
-  --output models/Qwen3-VL-2B-Instruct
+vlm-lab analyze data/architecture.png --model-size 8b
 ```
 
-Run from that directory only:
+```python
+model = QwenVLModel(model_size="8b")
+```
+
+### Use an explicit compatible Hugging Face model ID
+
+This keeps the package extensible to future Qwen variants without waiting for a package release:
 
 ```bash
 vlm-lab describe data/example.jpg \
-  --model-path models/Qwen3-VL-2B-Instruct \
+  --model-id Qwen/Qwen3-VL-4B-Instruct
+```
+
+```python
+from vlm_engineering import QwenVLModel
+
+model = QwenVLModel.from_hub("Qwen/Qwen3-VL-4B-Instruct")
+```
+
+`--model-size`, `--model-id` and `--model-path` are mutually exclusive so the CLI never silently chooses a different model than you intended.
+
+---
+
+## 3. Hugging Face cache vs explicit local/offline model
+
+### Option A - Hub/cache mode
+
+The first run downloads weights if needed. Later runs reuse the Hugging Face cache.
+
+```bash
+vlm-lab describe data/example.jpg --model-size 4b
+```
+
+Python:
+
+```python
+from vlm_engineering import QwenVLModel
+
+model = QwenVLModel.from_preset("4b")
+```
+
+### Option B - download a preset explicitly
+
+```bash
+vlm-lab download-model --model-size 4b
+```
+
+The default destination is derived from the model name:
+
+```text
+models/Qwen3-VL-4B-Instruct/
+```
+
+Choose your own destination if desired:
+
+```bash
+vlm-lab download-model \
+  --model-size 4b \
+  --output /models/qwen4b
+```
+
+### Option C - download any compatible model ID
+
+```bash
+vlm-lab download-model \
+  --model-id Qwen/Qwen3-VL-8B-Instruct \
+  --output models/qwen8b
+```
+
+### Option D - explicit local/offline inference
+
+```bash
+vlm-lab describe data/example.jpg \
+  --model-path models/Qwen3-VL-4B-Instruct \
   --prompt "Describe the image precisely."
 ```
 
 Python:
 
 ```python
-from vlm_engineering.qwen import QwenVLModel
+from vlm_engineering import QwenVLModel
 
-model = QwenVLModel.from_local("models/Qwen3-VL-2B-Instruct")
+model = QwenVLModel.from_local("models/Qwen3-VL-4B-Instruct")
 print(model.generate("data/example.jpg", "What is happening in this image?"))
 ```
 
-`from_local()` sets `local_files_only=True`, so it does not silently fall back to the Hub.
+`from_local()` sets `local_files_only=True`; it does not silently fall back to the Hugging Face Hub.
 
-### Option C - explicit remote custom code (advanced, normally unnecessary here)
+For a fully disconnected environment you can additionally set:
 
 ```bash
-vlm-lab describe data/example.jpg --trust-remote-code
+export HF_HUB_OFFLINE=1
 ```
 
-Only enable this for a model you trust and that genuinely requires repository-provided Python code. It expands the security trust boundary.
+---
 
-## 3. Core Qwen3-VL use cases
+## 4. Advanced model-loading options
+
+### `trust_remote_code`
+
+Default: **False**.
+
+```bash
+vlm-lab describe image.jpg --trust-remote-code
+```
+
+Only enable this for a model repository you trust and that genuinely requires repository-provided Python code. Enabling it expands the security trust boundary.
+
+### Device and dtype from Python
+
+```python
+from vlm_engineering import QwenVLModel
+
+model = QwenVLModel(
+    model_size="4b",
+    device_map="auto",
+    dtype="auto",
+)
+```
+
+For production, validate the exact dtype/quantization/backend combination on your hardware instead of assuming parameter count alone predicts memory usage.
+
+---
+
+## 5. Core Qwen3-VL use cases
 
 ### Image captioning / rich description
 
 ```bash
-vlm-lab describe photo.jpg --prompt "Write a factual, detailed description."
+vlm-lab describe photo.jpg \
+  --prompt "Write a factual, detailed description."
 ```
 
 ### Visual question answering
 
 ```bash
-vlm-lab describe dashboard.png --prompt "Which metric increased the most and what evidence supports it?"
+vlm-lab describe dashboard.png \
+  --model-size 4b \
+  --prompt "Which metric increased the most and what evidence supports it?"
 ```
 
 ### Diagram / architecture understanding
 
 ```bash
-vlm-lab analyze architecture.png
+vlm-lab analyze architecture.png --model-size 4b
 ```
 
-The `analyze` command asks Qwen3-VL for stable JSON containing page type, title, summary, entities, relations, important text and uncertainties.
+The `analyze` command asks the VLM for stable JSON containing page type, title, summary, entities, relations, important text and uncertainties.
 
 ### Screenshot / UI understanding
 
-Use the same `describe` or `analyze` interfaces for dashboards, application screenshots, forms and technical UI states.
+Use `describe` or `analyze` for dashboards, application screenshots, forms and technical UI states.
 
 ### Tables and document pages
 
-Render the page as an image and ask for structured extraction. For production documents, preserve native/OCR text separately and use the VLM for layout and relationships.
+Render a page as an image and request structured extraction. For production documents, preserve native/OCR text separately and use the VLM for layout, grouping and relationships.
 
-## 4. VLM + OCR/native parsing: hybrid, not replacement by default
+---
+
+## 6. VLM + OCR/native parsing: hybrid, not replacement by default
 
 ```text
 Native extraction / OCR                    Qwen3-VL
@@ -202,37 +360,40 @@ long deterministic text               relationships, visual meaning
 
 A VLM can replace OCR in some workflows, but the strongest document pipeline usually keeps native/OCR evidence for literal accuracy and adds VLM semantics where visual structure matters.
 
-## 5. Build a RAG-ready visual chunk
+---
+
+## 7. Build a RAG-ready visual chunk
 
 ```bash
 vlm-lab chunk data/page_001.png \
+  --model-size 4b \
   --document-id architecture-v1 \
   --source-file architecture.pdf \
   --page 1 \
   --native-text-file data/page_001.txt
 ```
 
-The output keeps traceability such as document ID, page, image reference, entities, relations and fused retrieval text.
+The result preserves traceability such as document ID, page, image reference, entities, relations and fused retrieval text.
 
-## 6. Visual RAG when you only have a text embedder
+---
 
-This compatibility pattern is extremely useful:
+## 8. Visual RAG when you only have a text embedder
 
 ```text
 image/page -> Qwen3-VL description/JSON -> retrieval text -> text embedder -> vector DB
 ```
 
-The VLM makes visual information searchable by converting it into a faithful text representation. See:
+This is useful when an existing RAG platform only supports text embeddings. The VLM turns visual evidence into faithful searchable text.
 
 ```bash
 python examples/text_only_visual_rag.py
 ```
 
-This does **not** mean the image should be discarded. Keep `image_ref` so the final VLM can inspect the original visual evidence after retrieval.
+Keep the original `image_ref`; after retrieval, the final VLM can inspect the original visual evidence again instead of trusting only the generated description.
 
-## 7. True multimodal embeddings with Qwen3-VL-Embedding
+---
 
-The retrieval model can embed text, image references, or mixed text+image inputs in a shared space.
+## 9. True multimodal embeddings
 
 ```python
 from vlm_engineering.retrieval import QwenMultimodalEmbedder
@@ -251,11 +412,9 @@ d = embedder.encode(documents)
 print(q @ d.T)
 ```
 
-SentenceTransformers integration is the intended path for this model family in this repository.
+---
 
-## 8. Reranking
-
-Use the embedding model for broad recall, then rerank the top candidates:
+## 10. Multimodal reranking
 
 ```python
 from vlm_engineering.retrieval import QwenMultimodalReranker
@@ -275,23 +434,72 @@ query
   -> Qwen3-VL-Embedding -> top 20
   -> Qwen3-VL-Reranker  -> top 3-5
   -> retrieve chunk text + original image
-  -> Qwen3-VL-Instruct  -> grounded answer with source/page
+  -> selected Qwen3-VL-Instruct model
+  -> grounded answer with source/page
 ```
 
-## 9. CLIP foundations
+---
 
-CLIP remains valuable because it teaches the shared embedding-space idea that modern multimodal retrieval systems build upon.
+## 11. CLIP foundations
 
 ```python
 from PIL import Image
-from vlm_engineering.clip import CLIPEncoder
+from vlm_engineering import CLIPEncoder
 
 image = Image.open("data/example.jpg").convert("RGB")
 clip = CLIPEncoder()
 print(clip.zero_shot_classify(image, ["cat", "dog", "airplane"]))
 ```
 
-## 10. Notebooks
+CLIP is useful for learning the shared image/text embedding-space idea that modern multimodal retrieval builds upon.
+
+---
+
+## 12. Python model-selection API summary
+
+```python
+from vlm_engineering import QwenVLModel
+
+# Default 2B
+m1 = QwenVLModel()
+
+# Friendly presets
+m2 = QwenVLModel(model_size="4b")
+m3 = QwenVLModel.from_preset("8b")
+
+# Explicit compatible Hugging Face ID
+m4 = QwenVLModel.from_hub("Qwen/Qwen3-VL-4B-Instruct")
+
+# Explicit local/offline directory
+m5 = QwenVLModel.from_local("models/Qwen3-VL-4B-Instruct")
+```
+
+Programmatic registry access:
+
+```python
+from vlm_engineering import QWEN3_VL_INSTRUCT_MODELS
+
+for alias, preset in QWEN3_VL_INSTRUCT_MODELS.items():
+    print(alias, preset.model_id, preset.parameter_class)
+```
+
+---
+
+## 13. Examples
+
+```text
+examples/clip_zero_shot.py               CLIP zero-shot classification
+examples/qwen_describe_image.py          Qwen image description
+examples/qwen_model_selection.py         2B/4B/8B/custom model selection
+examples/qwen_local_model.py             explicit local/offline Qwen
+examples/structured_visual_chunk.py      RAG-ready visual chunk
+examples/text_only_visual_rag.py         VLM description + text embeddings
+examples/qwen_multimodal_retrieval.py    multimodal embedding/retrieval
+```
+
+---
+
+## 14. Notebooks
 
 Notebooks are **analysis clients**, not the implementation layer:
 
@@ -300,20 +508,26 @@ Notebooks are **analysis clients**, not the implementation layer:
 - `02_visual_document_understanding.ipynb`
 - `03_multimodal_rag.ipynb`
 
-All reusable logic lives under `src/vlm_engineering` and can be called without Jupyter.
+All reusable logic lives under `src/vlm_engineering` and can be used without Jupyter.
 
-## 11. Quality gates
+---
+
+## 15. Quality gates
+
+Before pushing changes:
 
 ```bash
-python -m ruff check src tests examples
-python -m mypy src/vlm_engineering
-python -m pytest --cov=vlm_engineering --cov-report=term-missing
+python -m ruff check .
+python -m mypy .
+python -m pytest
 python -m pip_audit .
 ```
 
-CI additionally validates notebook JSON, Docker build and CodeQL.
+The test suite is intentionally lightweight and mocks/injects heavy ML components, so normal CI does not download multi-gigabyte Qwen/CLIP weights.
 
-## 12. Docker
+---
+
+## 16. Docker
 
 Build:
 
@@ -321,35 +535,79 @@ Build:
 docker build -t vision-language-engineering-lab .
 ```
 
-Mount your data and persistent model cache:
+Run with your data/model cache mounted:
 
 ```bash
 docker compose run --rm vlm-lab describe data/example.jpg
 ```
 
-GPU execution depends on the host/container runtime. For serious Qwen inference, use an NVIDIA-enabled environment or a dedicated inference server such as vLLM.
+GPU execution depends on the host/container runtime. For heavier concurrent Qwen workloads, consider a dedicated inference backend/server rather than loading a separate large model per process.
 
-## 13. Documentation
+---
 
-- `docs/pdf/Vision_Language_Engineering_EN.pdf`
-- `docs/pdf/Ingenierie_Vision_Langage_FR.pdf`
-- `docs/architecture.md`
-- `docs/rag-patterns.md`
-- `docs/model-loading.md`
+## 17. Troubleshooting
 
-## 14. Repository structure
+### `ModuleNotFoundError`
+
+Activate the project virtual environment and reinstall the appropriate optional dependencies:
+
+```bash
+source .venv/bin/activate
+python -m pip install -e ".[all]"
+```
+
+### CUDA / out-of-memory error
+
+Start with the default `2b` preset, reduce image resolution/output length, or use stronger hardware. Moving from 2B -> 4B -> 8B increases model capacity and memory pressure.
+
+### First run is slow
+
+Hub/cache mode may be downloading model files. Use `vlm-lab download-model ...` if you want an explicit download step before inference.
+
+### Need fully offline inference
+
+Download the model first, then use `--model-path` / `QwenVLModel.from_local()`. Optionally set `HF_HUB_OFFLINE=1`.
+
+### Model requires custom repository code
+
+Do not enable `--trust-remote-code` automatically. Verify the model repository and only opt in when required.
+
+### Which model should I choose?
+
+- Start with **2B** while developing the pipeline.
+- Compare **4B** if visual reasoning/extraction quality is insufficient.
+- Test **8B** only when the quality gain justifies higher resource cost.
+- Evaluate on your own diagrams/documents; model size alone does not guarantee better RAG accuracy.
+
+---
+
+## 18. Documentation
+
+- `docs/model-loading.md` - model presets, Hub/custom/local modes and troubleshooting
+- `docs/qwen-model-selection.md` - model-size selection and memory guidance
+- `docs/rag-patterns.md` - visual and multimodal RAG patterns
+- `docs/architecture.md` - package architecture
+- `docs/testing.md` - testing strategy
+- `docs/pdf/Vision_Language_Engineering_EN.pdf` - English teaching course
+- `docs/pdf/Ingenierie_Vision_Langage_FR.pdf` - French teaching course
+
+The PDFs are conceptual teaching references. The README and Markdown docs are the operational source of truth for the current package CLI/API.
+
+---
+
+## 19. Repository structure
 
 ```text
-src/vlm_engineering/     production code
+src/vlm_engineering/     production package
 examples/                runnable examples
 notebooks/               analysis/demonstration clients
-tests/                   lightweight deterministic tests
-docs/                    architecture, RAG guidance and bilingual course PDFs
-legacy/                  previous educational notebooks, isolated from maintained code
-models/                  local downloaded weights (gitignored)
+tests/                   deterministic unit/integration/contract tests
+docs/                    architecture, model-loading and RAG guidance
+legacy/                  previous educational notebooks isolated from maintained code
+models/                  explicitly downloaded weights (gitignored)
 data/                    user-provided images/pages (gitignored)
 ```
 
 ## License and third-party material
 
-New maintained project code is distributed under Apache-2.0. Model weights are downloaded separately and keep their own licenses. Historical notebooks are isolated under `legacy/`; see `THIRD_PARTY_NOTICES.md` before redistributing them.
+New maintained project code is distributed under Apache-2.0. Model weights are downloaded separately and retain their own licenses. Historical notebooks are isolated under `legacy/`; see `THIRD_PARTY_NOTICES.md` before redistributing them.
