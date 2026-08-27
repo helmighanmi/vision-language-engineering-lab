@@ -17,6 +17,12 @@ from .documents.schemas import NativePageContent
 from .documents.visual_analysis import analyze_visual_document
 from .qwen.downloader import download_model_snapshot
 from .qwen.model import QwenVLModel
+from .qwen.registry import (
+    DEFAULT_QWEN_MODEL_SIZE,
+    QWEN3_VL_INSTRUCT_MODELS,
+    default_model_directory,
+    resolve_qwen_model_id,
+)
 
 
 def _build_qwen(args: argparse.Namespace) -> QwenVLModel:
@@ -25,8 +31,13 @@ def _build_qwen(args: argparse.Namespace) -> QwenVLModel:
             args.model_path,
             trust_remote_code=args.trust_remote_code,
         )
-    return QwenVLModel.from_hub(
-        args.model_id,
+    if getattr(args, "model_id", None):
+        return QwenVLModel.from_hub(
+            args.model_id,
+            trust_remote_code=args.trust_remote_code,
+        )
+    return QwenVLModel.from_preset(
+        getattr(args, "model_size", None) or DEFAULT_QWEN_MODEL_SIZE,
         trust_remote_code=args.trust_remote_code,
     )
 
@@ -51,7 +62,11 @@ def cmd_chunk(args: argparse.Namespace) -> int:
         document_id=args.document_id,
         page=args.page,
         source_file=args.source_file,
-        native_text=Path(args.native_text_file).read_text(encoding="utf-8") if args.native_text_file else "",
+        native_text=(
+            Path(args.native_text_file).read_text(encoding="utf-8")
+            if args.native_text_file
+            else ""
+        ),
         image_ref=args.image,
     )
     chunk = VisualChunkBuilder().build(native, analysis, parent_context=args.parent_context)
@@ -60,14 +75,39 @@ def cmd_chunk(args: argparse.Namespace) -> int:
 
 
 def cmd_download(args: argparse.Namespace) -> int:
-    path = download_model_snapshot(args.model_id, output_dir=args.output, revision=args.revision)
+    model_id = resolve_qwen_model_id(model_size=args.model_size, model_id=args.model_id)
+    output = Path(args.output) if args.output else default_model_directory(model_id)
+    path = download_model_snapshot(model_id, output_dir=output, revision=args.revision)
     print(path)
     return 0
 
 
+def cmd_models(_args: argparse.Namespace) -> int:
+    print("Qwen3-VL Instruct presets:\n")
+    for size, preset in QWEN3_VL_INSTRUCT_MODELS.items():
+        default_marker = " (default)" if size == DEFAULT_QWEN_MODEL_SIZE else ""
+        print(
+            f"{size}{default_marker}: {preset.model_id} "
+            f"[{preset.parameter_class}]\n  {preset.description}"
+        )
+    return 0
+
+
 def add_model_args(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("--model-id", default="Qwen/Qwen3-VL-2B-Instruct")
-    parser.add_argument("--model-path", help="Explicit local model directory; enables offline loading.")
+    group = parser.add_mutually_exclusive_group()
+    group.add_argument(
+        "--model-size",
+        choices=tuple(QWEN3_VL_INSTRUCT_MODELS),
+        help="Friendly Qwen3-VL Instruct preset: 2b (default), 4b, or 8b.",
+    )
+    group.add_argument(
+        "--model-id",
+        help="Explicit compatible Hugging Face model ID; overrides the default preset.",
+    )
+    group.add_argument(
+        "--model-path",
+        help="Explicit local model directory; enables offline/local-files-only loading.",
+    )
     parser.add_argument(
         "--trust-remote-code",
         action="store_true",
@@ -76,8 +116,14 @@ def add_model_args(parser: argparse.ArgumentParser) -> None:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="vlm-lab", description="Vision-Language Engineering Lab CLI")
+    parser = argparse.ArgumentParser(
+        prog="vlm-lab",
+        description="Vision-Language Engineering Lab CLI",
+    )
     sub = parser.add_subparsers(dest="command", required=True)
+
+    models = sub.add_parser("models", help="List supported Qwen3-VL model-size presets.")
+    models.set_defaults(func=cmd_models)
 
     describe = sub.add_parser("describe", help="Describe or question an image with Qwen3-VL.")
     describe.add_argument("image")
@@ -91,7 +137,10 @@ def build_parser() -> argparse.ArgumentParser:
     add_model_args(analyze)
     analyze.set_defaults(func=cmd_analyze)
 
-    chunk = sub.add_parser("chunk", help="Build a visual RAG chunk from an image and optional native text.")
+    chunk = sub.add_parser(
+        "chunk",
+        help="Build a visual RAG chunk from an image and optional native text.",
+    )
     chunk.add_argument("image")
     chunk.add_argument("--document-id", required=True)
     chunk.add_argument("--source-file", required=True)
@@ -102,8 +151,20 @@ def build_parser() -> argparse.ArgumentParser:
     chunk.set_defaults(func=cmd_chunk)
 
     download = sub.add_parser("download-model", help="Download a complete Hugging Face model snapshot.")
-    download.add_argument("--model-id", default="Qwen/Qwen3-VL-2B-Instruct")
-    download.add_argument("--output", default="models/Qwen3-VL-2B-Instruct")
+    download_group = download.add_mutually_exclusive_group()
+    download_group.add_argument(
+        "--model-size",
+        choices=tuple(QWEN3_VL_INSTRUCT_MODELS),
+        help="Download a supported Qwen3-VL preset (2b, 4b, 8b).",
+    )
+    download_group.add_argument(
+        "--model-id",
+        help="Download an explicit compatible Hugging Face model ID.",
+    )
+    download.add_argument(
+        "--output",
+        help="Destination directory. Defaults to models/<model-name>.",
+    )
     download.add_argument("--revision")
     download.set_defaults(func=cmd_download)
     return parser

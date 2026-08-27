@@ -1,0 +1,9 @@
+# Path: requirements.txt
+# Author: GHANMI Helmi
+# Current Role: AI Engineer
+# Past Role: Researcher in Applied Mathematics
+# Research Profile: https://www.researchgate.net/profile/Ghanmi-Helmi
+
+# pyproject.toml is the source of truth.
+# Install all runtime VLM/retrieval features from the local project.
+.[all]
