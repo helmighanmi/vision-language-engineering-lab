@@ -15,6 +15,7 @@ Research Profile: https://www.researchgate.net/profile/Ghanmi-Helmi
 - Added arbitrary compatible Hugging Face `--model-id` support and explicit local/offline `--model-path`.
 - Added `vlm-lab models` plus preset-aware model downloads.
 - Added model-selection tests and user guidance for sizing, memory, offline loading and troubleshooting.
+- Added a nine-scenario application cookbook covering captioning, VQA, diagram JSON, RAG chunking, text-only visual RAG, multimodal retrieval, model comparison, offline loading and batch analysis.
 
 ## 1.0.0 - Production-oriented refactor
 

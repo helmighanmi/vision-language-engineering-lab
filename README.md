@@ -485,7 +485,9 @@ for alias, preset in QWEN3_VL_INSTRUCT_MODELS.items():
 
 ---
 
-## 13. Examples
+## 13. Examples and application scenarios
+
+Small API examples:
 
 ```text
 examples/clip_zero_shot.py               CLIP zero-shot classification
@@ -496,6 +498,41 @@ examples/structured_visual_chunk.py      RAG-ready visual chunk
 examples/text_only_visual_rag.py         VLM description + text embeddings
 examples/qwen_multimodal_retrieval.py    multimodal embedding/retrieval
 ```
+
+For complete runnable use cases, use the `scenarios/` cookbook:
+
+```text
+scenarios/scenario_01_image_captioning.py          image captioning / description
+scenarios/scenario_02_visual_question_answering.py grounded VQA
+scenarios/scenario_03_diagram_to_json.py           diagram -> structured JSON
+scenarios/scenario_04_document_page_to_rag_chunk.py native/OCR + VLM -> RAG chunk
+scenarios/scenario_05_text_only_visual_rag.py      images -> VLM text -> text RAG
+scenarios/scenario_06_true_multimodal_retrieval.py direct multimodal retrieval
+scenarios/scenario_07_compare_qwen_presets.py      compare Qwen 2B / 4B / 8B
+scenarios/scenario_08_hub_vs_local_loading.py      Hub/cache vs local/offline
+scenarios/scenario_09_batch_structured_analysis.py batch image/page analysis
+```
+
+Each relevant scenario accepts the same Qwen model choices used by the package:
+
+```bash
+# default 2B
+python scenarios/scenario_01_image_captioning.py data/example.jpg
+
+# 4B / 8B presets
+python scenarios/scenario_01_image_captioning.py data/example.jpg --model-size 4b
+python scenarios/scenario_01_image_captioning.py data/example.jpg --model-size 8b
+
+# arbitrary compatible Hugging Face model
+python scenarios/scenario_01_image_captioning.py data/example.jpg \
+  --model-id Qwen/Qwen3-VL-4B-Instruct
+
+# explicit local/offline model
+python scenarios/scenario_01_image_captioning.py data/example.jpg \
+  --model-path models/Qwen3-VL-4B-Instruct
+```
+
+See **[`scenarios/README.md`](scenarios/README.md)** for copy/paste commands, model guidance, RAG patterns, batch processing and offline usage.
 
 ---
 
@@ -599,7 +636,8 @@ The PDFs are conceptual teaching references. The README and Markdown docs are th
 
 ```text
 src/vlm_engineering/     production package
-examples/                runnable examples
+examples/                small runnable API examples
+scenarios/               end-to-end application cookbook
 notebooks/               analysis/demonstration clients
 tests/                   deterministic unit/integration/contract tests
 docs/                    architecture, model-loading and RAG guidance
