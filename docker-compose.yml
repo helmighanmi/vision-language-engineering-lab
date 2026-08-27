@@ -1,0 +1,17 @@
+# Path: docker-compose.yml
+# Author: GHANMI Helmi
+# Current Role: AI Engineer
+# Past Role: Researcher in Applied Mathematics
+# Research Profile: https://www.researchgate.net/profile/Ghanmi-Helmi
+
+services:
+  vlm-lab:
+    build: .
+    volumes:
+      - ./models:/app/models
+      - ./data:/app/data:ro
+      - hf-cache:/home/appuser/.cache/huggingface
+    command: ["--help"]
+
+volumes:
+  hf-cache:
