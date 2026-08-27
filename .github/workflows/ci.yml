@@ -1,0 +1,56 @@
+# Path: .github/workflows/ci.yml
+# Author: GHANMI Helmi
+# Current Role: AI Engineer
+# Past Role: Researcher in Applied Mathematics
+# Research Profile: https://www.researchgate.net/profile/Ghanmi-Helmi
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  quality-and-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install project and developer tools
+        run: |
+          python -m pip install --upgrade pip setuptools wheel
+          python -m pip install -e ".[dev]"
+      - name: Ruff
+        run: python -m ruff check src tests examples
+      - name: Mypy
+        run: python -m mypy src/vlm_engineering
+      - name: Tests
+        run: python -m pytest --cov=vlm_engineering --cov-report=term-missing --cov-report=xml
+      - name: Notebook integrity
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          for path in Path("notebooks").glob("*.ipynb"):
+              json.loads(path.read_text(encoding="utf-8"))
+              print(f"OK: {path}")
+          PY
+
+  docker-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          tags: vision-language-engineering-lab:ci
