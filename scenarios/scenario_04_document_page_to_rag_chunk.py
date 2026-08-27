@@ -13,6 +13,7 @@ import json
 from pathlib import Path
 
 from common import add_qwen_model_args, build_qwen, model_label
+
 from vlm_engineering.documents import NativePageContent, VisualChunkBuilder, analyze_visual_document
 
 

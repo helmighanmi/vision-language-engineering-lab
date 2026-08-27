@@ -47,12 +47,6 @@ classifiers = [
   "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
 
-[project.urls]
-Homepage = "https://github.com/helmighanmi/vision-language-engineering-lab"
-Repository = "https://github.com/helmighanmi/vision-language-engineering-lab"
-Issues = "https://github.com/helmighanmi/vision-language-engineering-lab/issues"
-Documentation = "https://github.com/helmighanmi/vision-language-engineering-lab/tree/main/docs"
-
 
 # ---------------------------------------------------------------------------
 # Core dependencies
@@ -67,19 +61,27 @@ dependencies = [
 
 
 # ---------------------------------------------------------------------------
+# Project URLs
+# ---------------------------------------------------------------------------
+
+[project.urls]
+Homepage = "https://github.com/helmighanmi/vision-language-engineering-lab"
+Repository = "https://github.com/helmighanmi/vision-language-engineering-lab"
+Issues = "https://github.com/helmighanmi/vision-language-engineering-lab/issues"
+Documentation = "https://github.com/helmighanmi/vision-language-engineering-lab/tree/main/docs"
+
+
+# ---------------------------------------------------------------------------
 # Optional dependencies
 # ---------------------------------------------------------------------------
 
 [project.optional-dependencies]
 
-# CLIP examples and inference.
 clip = [
   "torch>=2.8,<3",
   "transformers>=4.57,<6",
 ]
 
-
-# Qwen3-VL generative inference.
 qwen = [
   "accelerate>=1.10,<2",
   "huggingface-hub>=0.34,<2",
@@ -88,22 +90,16 @@ qwen = [
   "transformers>=4.57,<6",
 ]
 
-
-# Text and multimodal retrieval, embedding and reranking.
 retrieval = [
   "sentence-transformers>=5.4,<6",
 ]
 
-
-# Jupyter / analysis environment.
 notebooks = [
   "jupyterlab>=4,<5",
   "matplotlib>=3.9,<4",
   "pandas>=2.2,<3",
 ]
 
-
-# Development and CI quality gates.
 dev = [
   "mypy>=1.18,<2",
   "pip-audit>=2.9,<3",
@@ -112,8 +108,6 @@ dev = [
   "ruff>=0.12,<1",
 ]
 
-
-# Complete production feature set.
 all = [
   "accelerate>=1.10,<2",
   "huggingface-hub>=0.34,<2",
@@ -125,7 +119,7 @@ all = [
 
 
 # ---------------------------------------------------------------------------
-# Command-line interface
+# CLI
 # ---------------------------------------------------------------------------
 
 [project.scripts]
@@ -133,7 +127,7 @@ vlm-lab = "vlm_engineering.cli:main"
 
 
 # ---------------------------------------------------------------------------
-# Package configuration
+# Package discovery
 # ---------------------------------------------------------------------------
 
 [tool.setuptools]
@@ -169,7 +163,6 @@ extend-exclude = [
   "legacy",
   "notebooks",
 ]
-
 
 [tool.ruff.lint]
 select = [
@@ -208,7 +201,6 @@ source = [
   "vlm_engineering",
 ]
 branch = true
-
 
 [tool.coverage.report]
 fail_under = 80
