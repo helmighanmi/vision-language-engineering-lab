@@ -101,7 +101,7 @@ notebooks = [
 dev = [
   "mypy>=1.18,<2",
   "pip-audit>=2.9,<3",
-  "pytest>=8,<9",
+  "pytest>=8,<10",
   "pytest-cov>=6,<8",
   "ruff>=0.12,<1",
 ]
