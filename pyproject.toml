@@ -18,8 +18,7 @@ version = "0.2.0"
 description = "Production-oriented Vision-Language engineering with CLIP, Qwen3-VL, visual document understanding and multimodal RAG."
 readme = "README.md"
 
-# v0.2.0 officially targets Python 3.11, 3.12, and 3.13.
-# Every supported interpreter will be validated independently in CI.
+# v0.2.0 officially supports Python 3.11, 3.12, and 3.13.
 requires-python = ">=3.11,<3.14"
 
 license = "Apache-2.0"
@@ -97,13 +96,17 @@ qwen = [
 # Text and multimodal retrieval stack.
 retrieval = [
   # Support both Sentence Transformers 5.x and 6.x.
-  # Compatibility across Python 3.11-3.13 will be validated in CI.
+  # Compatibility across Python 3.11-3.13 is validated in CI.
   "sentence-transformers>=5.4,<7",
 ]
 
 # Interactive notebook environment.
+#
+# The minimum JupyterLab and Jupyter Server versions are intentionally
+# constrained above known vulnerable older releases.
 notebooks = [
-  "jupyterlab>=4,<5",
+  "jupyterlab>=4.6.3,<5",
+  "jupyter-server>=2.21,<3",
   "matplotlib>=3.9,<4",
   "pandas>=2.2,<3",
 ]
@@ -118,6 +121,9 @@ dev = [
 ]
 
 # Complete runtime feature set.
+#
+# Notebook tooling is intentionally not included here because it is not
+# required by production/runtime users.
 all = [
   "accelerate>=1.10,<2",
   "huggingface-hub>=0.34,<2",
@@ -166,8 +172,8 @@ addopts = "-ra -q"
 
 [tool.ruff]
 
-# Ruff deliberately targets the oldest Python version supported by the
-# package. This helps prevent accidental use of Python 3.12+ syntax.
+# Ruff targets the oldest officially supported Python version so accidental
+# use of Python 3.12+ syntax is caught before release.
 target-version = "py311"
 
 line-length = 110
@@ -197,17 +203,16 @@ select = [
 
 [tool.mypy]
 
-# Do not force python_version here.
+# Do not force a Python version here.
 #
-# CI will execute mypy using the actual interpreter for every supported
-# version:
+# GitHub Actions executes mypy natively under each supported interpreter:
 #
-#   Python 3.11 -> mypy under Python 3.11
-#   Python 3.12 -> mypy under Python 3.12
-#   Python 3.13 -> mypy under Python 3.13
+#   Python 3.11
+#   Python 3.12
+#   Python 3.13
 #
-# This avoids incompatibilities caused by third-party type stubs installed
-# under one Python version while asking mypy to emulate another.
+# This avoids third-party stub incompatibilities caused by running one
+# interpreter while asking mypy to emulate another.
 
 check_untyped_defs = true
 no_implicit_optional = true
