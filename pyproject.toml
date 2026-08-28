@@ -108,7 +108,7 @@ notebooks = [
 
 # Development, testing, static analysis, and security tooling.
 dev = [
-  "mypy>=1.18,<2",
+  "mypy>=1.18,<3",
   "pip-audit>=2.9,<3",
   "pytest>=9.0.3,<10",
   "pytest-cov>=7.1,<8",
