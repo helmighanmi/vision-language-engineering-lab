@@ -27,7 +27,6 @@ jobs:
 
     strategy:
       fail-fast: false
-
       matrix:
         python-version:
           - "3.11"
@@ -71,11 +70,13 @@ jobs:
           import numpy
           import sentence_transformers
           import torch
+          import torchvision
           import transformers
 
           print("Python:", sys.version)
           print("NumPy:", numpy.__version__)
           print("PyTorch:", torch.__version__)
+          print("Torchvision:", torchvision.__version__)
           print("Transformers:", transformers.__version__)
           print("Sentence Transformers:", sentence_transformers.__version__)
           print("Accelerate:", accelerate.__version__)
@@ -115,4 +116,4 @@ jobs:
 
       - name: Dependency security audit
         run: |
-          python -m pip_audit
+          python -m pip_audit .

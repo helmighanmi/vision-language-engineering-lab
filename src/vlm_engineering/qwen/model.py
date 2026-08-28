@@ -10,10 +10,73 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Any
+from urllib.parse import unquote, urlparse
 
 from ..exceptions import ModelLoadError, OptionalDependencyError
-from ..utils import to_image_reference
 from .registry import resolve_qwen_model_id
+
+
+def _normalize_image_source(image: str | Path) -> str:
+    """Normalize an image source for the Hugging Face processor.
+
+    Local images are passed as absolute filesystem paths rather than ``file://``
+    URIs because the Transformers image-loading backend expects a normal local
+    path, an HTTP(S) URL, or an encoded image payload.
+
+    HTTP(S) URLs are preserved unchanged.
+
+    ``file://`` URIs are accepted for backwards compatibility and converted
+    back into normal filesystem paths.
+    """
+
+    if isinstance(image, Path):
+        path = image.expanduser().resolve()
+
+        if not path.exists():
+            raise FileNotFoundError(path)
+
+        if not path.is_file():
+            raise ValueError(f"Image path is not a file: {path}")
+
+        return str(path)
+
+    value = image.strip()
+
+    if not value:
+        raise ValueError("image must not be empty.")
+
+    if value.startswith(("http://", "https://")):
+        return value
+
+    if value.startswith("file://"):
+        parsed = urlparse(value)
+        path = Path(unquote(parsed.path)).expanduser().resolve()
+
+        if not path.exists():
+            raise FileNotFoundError(path)
+
+        if not path.is_file():
+            raise ValueError(f"Image path is not a file: {path}")
+
+        return str(path)
+
+    candidate = Path(value).expanduser()
+
+    try:
+        if candidate.exists():
+            path = candidate.resolve()
+
+            if not path.is_file():
+                raise ValueError(f"Image path is not a file: {path}")
+
+            return str(path)
+    except OSError:
+        # The value may be an encoded image payload rather than a filesystem
+        # path. Leave backend-specific validation to Transformers.
+        pass
+
+    # Preserve non-path values such as supported encoded image payloads.
+    return value
 
 
 class QwenVLModel:
@@ -23,7 +86,8 @@ class QwenVLModel:
     Friendly ``model_size`` aliases are available for ``2b``, ``4b`` and ``8b``.
 
     ``trust_remote_code`` defaults to ``False``. Current Qwen3-VL is integrated
-    into Transformers and does not require remote custom Python code for normal use.
+    into Transformers and does not require remote custom Python code for normal
+    use.
     """
 
     def __init__(
@@ -45,6 +109,7 @@ class QwenVLModel:
             resolved_source = resolve_qwen_model_id(model_size=model_size)
         else:
             resolved_source = str(model_source)
+
             if not resolved_source.strip():
                 raise ValueError("model_source must not be empty.")
 
@@ -57,22 +122,51 @@ class QwenVLModel:
         self._processor = processor
 
     @classmethod
-    def from_preset(cls, model_size: str = "2b", **kwargs: Any) -> "QwenVLModel":
+    def from_preset(
+        cls,
+        model_size: str = "2b",
+        **kwargs: Any,
+    ) -> "QwenVLModel":
         """Create a loader from the supported ``2b``, ``4b`` or ``8b`` presets."""
-        return cls(model_size=model_size, local_files_only=False, **kwargs)
+        return cls(
+            model_size=model_size,
+            local_files_only=False,
+            **kwargs,
+        )
 
     @classmethod
-    def from_hub(cls, model_id: str | None = None, **kwargs: Any) -> "QwenVLModel":
+    def from_hub(
+        cls,
+        model_id: str | None = None,
+        **kwargs: Any,
+    ) -> "QwenVLModel":
         """Create a Hub/cache-backed loader for any compatible model ID."""
-        return cls(resolve_qwen_model_id(model_id=model_id), local_files_only=False, **kwargs)
+        return cls(
+            resolve_qwen_model_id(model_id=model_id),
+            local_files_only=False,
+            **kwargs,
+        )
 
     @classmethod
-    def from_local(cls, model_path: str | Path, **kwargs: Any) -> "QwenVLModel":
+    def from_local(
+        cls,
+        model_path: str | Path,
+        **kwargs: Any,
+    ) -> "QwenVLModel":
         """Create an offline loader that never falls back to the Hub."""
         path = Path(model_path).expanduser().resolve()
+
         if not path.exists():
             raise FileNotFoundError(path)
-        return cls(str(path), local_files_only=True, **kwargs)
+
+        if not path.is_dir():
+            raise ValueError(f"Model path is not a directory: {path}")
+
+        return cls(
+            str(path),
+            local_files_only=True,
+            **kwargs,
+        )
 
     def _ensure_loaded(self) -> tuple[Any, Any]:
         """Load and return ``(model, processor)`` exactly once."""
@@ -83,26 +177,36 @@ class QwenVLModel:
             from transformers import AutoModelForMultimodalLM, AutoProcessor
         except ImportError as exc:
             raise OptionalDependencyError(
-                'Install Qwen dependencies with: pip install -e ".[qwen]"'
+                'Install Qwen dependencies with: pip install "vision-language-engineering-lab[qwen]"'
             ) from exc
 
         common = {
             "local_files_only": self.local_files_only,
             "trust_remote_code": self.trust_remote_code,
         }
+
         try:
-            self._processor = AutoProcessor.from_pretrained(self.model_source, **common)
+            self._processor = AutoProcessor.from_pretrained(
+                self.model_source,
+                **common,
+            )
+
             self._model = AutoModelForMultimodalLM.from_pretrained(
                 self.model_source,
                 device_map=self.device_map,
                 dtype=self.dtype,
                 **common,
             )
-        except Exception as exc:  # pragma: no cover - backend/hardware specific
-            raise ModelLoadError(f"Unable to load model from {self.model_source!r}: {exc}") from exc
 
-        if self._model is None or self._processor is None:  # defensive guard
-            raise ModelLoadError(f"Unable to load model from {self.model_source!r}.")
+        except Exception as exc:  # pragma: no cover - backend/hardware specific
+            raise ModelLoadError(
+                f"Unable to load model from {self.model_source!r}: {exc}"
+            ) from exc
+
+        if self._model is None or self._processor is None:
+            raise ModelLoadError(
+                f"Unable to load model from {self.model_source!r}."
+            )
 
         return self._model, self._processor
 
@@ -117,25 +221,45 @@ class QwenVLModel:
         """Generate a text response grounded in one image."""
         if not prompt.strip():
             raise ValueError("prompt must not be empty.")
+
         if max_new_tokens <= 0:
             raise ValueError("max_new_tokens must be greater than zero.")
 
+        image_source = _normalize_image_source(image)
+
         model, processor = self._ensure_loaded()
-        image_ref = to_image_reference(image)
+
         messages: list[dict[str, Any]] = []
+
         if system_prompt:
             messages.append(
-                {"role": "system", "content": [{"type": "text", "text": system_prompt}]}
+                {
+                    "role": "system",
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": system_prompt,
+                        }
+                    ],
+                }
             )
+
         messages.append(
             {
                 "role": "user",
                 "content": [
-                    {"type": "image", "url": image_ref},
-                    {"type": "text", "text": prompt},
+                    {
+                        "type": "image",
+                        "url": image_source,
+                    },
+                    {
+                        "type": "text",
+                        "text": prompt,
+                    },
                 ],
             }
         )
+
         inputs = processor.apply_chat_template(
             messages,
             add_generation_prompt=True,
@@ -143,6 +267,15 @@ class QwenVLModel:
             return_dict=True,
             return_tensors="pt",
         ).to(model.device)
-        outputs = model.generate(**inputs, max_new_tokens=max_new_tokens)
+
+        outputs = model.generate(
+            **inputs,
+            max_new_tokens=max_new_tokens,
+        )
+
         generated = outputs[0][inputs["input_ids"].shape[-1] :]
-        return processor.decode(generated, skip_special_tokens=True).strip()
+
+        return processor.decode(
+            generated,
+            skip_special_tokens=True,
+        ).strip()

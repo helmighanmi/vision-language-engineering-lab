@@ -13,6 +13,7 @@ __pycache__/
 .ruff_cache/
 .coverage
 coverage.xml
+htmlcov/
 
 # Build
 build/
@@ -27,6 +28,7 @@ models/
 # Data / generated outputs
 data/*
 !data/README.md
+!data/diagram_random_clean.png
 outputs/
 artifacts/
 

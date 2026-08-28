@@ -14,7 +14,7 @@ Research Profile: https://www.researchgate.net/profile/Ghanmi-Helmi
 
 The reusable implementation lives under `src/vlm_engineering`. Notebooks are analysis/demo clients only, while `examples/` and `scenarios/` provide runnable package usage patterns.
 
-> **v0.2.0 compatibility target:** Python 3.11, 3.12, and 3.13. Compatibility is validated in CI on every supported Python version before release.
+> **v0.2.1 compatibility target:** Python 3.11, 3.12, and 3.13. Compatibility is validated in CI on every supported Python version before release.
 
 Contributions are welcome. See [Contributing](#20-contributing) and [`CONTRIBUTING.md`](CONTRIBUTING.md).
 
@@ -51,16 +51,28 @@ After a public PyPI release, users can install the package with:
 python -m pip install "vision-language-engineering-lab[all]"
 ```
 
-### Example 1 — Describe an image with the default Qwen3-VL 2B model
+### Example 1 — Real-image smoke test with the default Qwen3-VL 2B model
+
+A repository clone includes `data/diagram_random_clean.png` as a real-image smoke-test asset. Run:
+
+```bash
+vlm-lab describe data/diagram_random_clean.png \
+  --model-size 2b \
+  --prompt "Describe this image accurately. List the main objects, text, and important visual relationships."
+```
+
+The first Hub-backed run may download several gigabytes of model weights. Later runs reuse the Hugging Face cache. For predictable local/offline and Docker deployments, use the project-local model workflow in [Hugging Face cache and project-local models](#7-hugging-face-cache-and-project-local-models).
+
+The equivalent Python API is:
 
 ```python
 from vlm_engineering import QwenVLModel
 
-model = QwenVLModel()
+model = QwenVLModel(model_size="2b")
 
 answer = model.generate(
-    "data/example.jpg",
-    "Describe this image precisely and identify the important elements.",
+    "data/diagram_random_clean.png",
+    "Describe this image accurately. List the main objects, text, and important visual relationships.",
 )
 
 print(answer)
@@ -70,6 +82,14 @@ The default model is:
 
 ```text
 Qwen/Qwen3-VL-2B-Instruct
+```
+
+If you installed the package from PyPI instead of cloning the repository, use your own image path:
+
+```bash
+vlm-lab describe /path/to/your/image.png \
+  --model-size 2b \
+  --prompt "Describe this image accurately. List the main objects, text, and important visual relationships."
 ```
 
 ### Example 2 — Select the 4B or 8B Qwen3-VL model
@@ -168,20 +188,20 @@ print(embeddings.shape)
 vlm-lab models
 
 # Default 2B
-vlm-lab describe data/example.jpg
+vlm-lab describe data/diagram_random_clean.png
 
 # 4B
-vlm-lab describe data/example.jpg --model-size 4b
+vlm-lab describe data/diagram_random_clean.png --model-size 4b
 
 # 8B
 vlm-lab analyze data/architecture.png --model-size 8b
 
 # Explicit Hugging Face model
-vlm-lab describe data/example.jpg \
+vlm-lab describe data/diagram_random_clean.png \
   --model-id Qwen/Qwen3-VL-4B-Instruct
 
 # Local/offline model
-vlm-lab describe data/example.jpg \
+vlm-lab describe data/diagram_random_clean.png \
   --model-path models/Qwen3-VL-4B-Instruct
 ```
 
@@ -221,7 +241,7 @@ The project intentionally separates:
 
 ## 3. Python compatibility
 
-v0.2.0 targets:
+v0.2.1 targets:
 
 | Python | Support |
 |---|---:|
@@ -243,7 +263,7 @@ Ruff targets Python 3.11 syntax so package code does not accidentally rely on Py
 
 Google Colab can use the package directly when its runtime Python version is within the supported range.
 
-After the public v0.2.0 release:
+After the public v0.2.1 release:
 
 ```python
 !pip install "vision-language-engineering-lab[all]"
@@ -428,37 +448,66 @@ for alias, preset in QWEN3_VL_INSTRUCT_MODELS.items():
 
 ---
 
-## 7. Hugging Face cache and offline models
+## 7. Hugging Face cache and project-local models
 
-### Hub/cache mode
+### Two supported storage modes
 
-The first run downloads model files when needed. Later runs reuse the Hugging Face cache.
+For a quick experiment, Hub-backed inference can use the normal Hugging Face cache:
 
 ```bash
-vlm-lab describe data/example.jpg --model-size 4b
+vlm-lab describe data/diagram_random_clean.png --model-size 2b
 ```
 
-### Download a preset explicitly
+For Docker, offline execution, explicit cleanup, and reproducible deployments, prefer an explicit project-local model under `models/`.
+
+### Recommended: download the 2B preset into `models/`
 
 ```bash
-vlm-lab download-model --model-size 4b
+vlm-lab download-model \
+  --model-size 2b \
+  --output models/Qwen3-VL-2B-Instruct
+```
+
+The `--output` argument is optional. This shorter command uses the same deterministic destination:
+
+```bash
+vlm-lab download-model --model-size 2b
 ```
 
 Default destination:
 
 ```text
-models/Qwen3-VL-4B-Instruct/
+models/Qwen3-VL-2B-Instruct/
 ```
 
-Choose a destination:
+Hugging Face `snapshot_download(..., local_dir=...)` places the model files under the requested directory instead of the normal global Hub cache. Hugging Face may create a small `.cache/huggingface/` metadata directory inside the local model directory.
+
+### Run from the explicit local model directory
 
 ```bash
-vlm-lab download-model \
-  --model-size 4b \
-  --output models/qwen4b
+vlm-lab describe data/diagram_random_clean.png \
+  --model-path models/Qwen3-VL-2B-Instruct \
+  --prompt "Describe this image accurately. List the main objects, text, and important visual relationships."
 ```
 
-### Download an explicit compatible model
+### Verify fully offline loading
+
+After the download succeeds:
+
+```bash
+HF_HUB_OFFLINE=1 vlm-lab describe data/diagram_random_clean.png \
+  --model-path models/Qwen3-VL-2B-Instruct \
+  --prompt "Describe this image accurately."
+```
+
+`QwenVLModel.from_local()` enables local-files-only loading and does not silently fall back to the Hub.
+
+### Download another preset or explicit model ID
+
+```bash
+vlm-lab download-model --model-size 4b
+vlm-lab download-model --model-size 8b
+```
 
 ```bash
 vlm-lab download-model \
@@ -466,21 +515,22 @@ vlm-lab download-model \
   --output models/qwen8b
 ```
 
-### Fully local/offline inference
+### Clean the old global cache only after offline verification
+
+Never remove the global Hugging Face cache while a model is downloading or running. First verify the local model with `HF_HUB_OFFLINE=1`, then inspect the old cache:
 
 ```bash
-vlm-lab describe data/example.jpg \
-  --model-path models/Qwen3-VL-4B-Instruct \
-  --prompt "Describe the image precisely."
+du -sh ~/.cache/huggingface/hub 2>/dev/null
+hf cache list --sort size:desc
 ```
 
-For a disconnected environment:
+If disk space is needed after the offline test succeeds, remove only the old Qwen cache entry you no longer need:
 
 ```bash
-export HF_HUB_OFFLINE=1
+rm -rf ~/.cache/huggingface/hub/models--Qwen--Qwen3-VL-2B-Instruct
 ```
 
-Then continue using `--model-path` or `QwenVLModel.from_local()`.
+The package never deletes a user's shared Hugging Face cache automatically.
 
 ---
 
@@ -664,7 +714,7 @@ from PIL import Image
 
 from vlm_engineering import CLIPEncoder
 
-image = Image.open("data/example.jpg").convert("RGB")
+image = Image.open("data/diagram_random_clean.png").convert("RGB")
 
 clip = CLIPEncoder()
 result = clip.zero_shot_classify(
@@ -711,23 +761,23 @@ Each applicable scenario accepts the same model choices used by the package:
 
 ```bash
 # Default 2B
-python scenarios/scenario_01_image_captioning.py data/example.jpg
+python scenarios/scenario_01_image_captioning.py data/diagram_random_clean.png
 
 # 4B / 8B
 python scenarios/scenario_01_image_captioning.py \
-  data/example.jpg --model-size 4b
+  data/diagram_random_clean.png --model-size 4b
 
 python scenarios/scenario_01_image_captioning.py \
-  data/example.jpg --model-size 8b
+  data/diagram_random_clean.png --model-size 8b
 
 # Explicit Hugging Face model
 python scenarios/scenario_01_image_captioning.py \
-  data/example.jpg \
+  data/diagram_random_clean.png \
   --model-id Qwen/Qwen3-VL-4B-Instruct
 
 # Explicit local model
 python scenarios/scenario_01_image_captioning.py \
-  data/example.jpg \
+  data/diagram_random_clean.png \
   --model-path models/Qwen3-VL-4B-Instruct
 ```
 
@@ -776,7 +826,7 @@ From the repository root:
 docker compose build
 ```
 
-The image is built from the repository `Dockerfile`, which currently uses Python 3.12 as the reference container runtime. The package itself targets Python 3.11-3.13 in v0.2.0.
+The image is built from the repository `Dockerfile`, which currently uses Python 3.12 as the reference container runtime. The package itself targets Python 3.11-3.13 in v0.2.1.
 
 ### Check the CLI inside the container
 
@@ -810,18 +860,18 @@ This means:
 
 ### Describe an image with the default 2B model
 
-Place an image at `data/example.jpg`, then run:
+Place an image at `data/diagram_random_clean.png`, then run:
 
 ```bash
 docker compose run --rm vlm-lab \
-  describe data/example.jpg
+  describe data/diagram_random_clean.png
 ```
 
 With a custom prompt:
 
 ```bash
 docker compose run --rm vlm-lab \
-  describe data/example.jpg \
+  describe data/diagram_random_clean.png \
   --prompt "Describe this image precisely."
 ```
 
@@ -829,7 +879,7 @@ docker compose run --rm vlm-lab \
 
 ```bash
 docker compose run --rm vlm-lab \
-  describe data/example.jpg \
+  describe data/diagram_random_clean.png \
   --model-size 4b
 ```
 
@@ -856,7 +906,7 @@ Then use the local model explicitly:
 
 ```bash
 docker compose run --rm vlm-lab \
-  describe data/example.jpg \
+  describe data/diagram_random_clean.png \
   --model-path models/Qwen3-VL-4B-Instruct
 ```
 
@@ -868,7 +918,7 @@ First download the model while network access is available. Then run:
 docker compose run --rm \
   -e HF_HUB_OFFLINE=1 \
   vlm-lab \
-  describe data/example.jpg \
+  describe data/diagram_random_clean.png \
   --model-path models/Qwen3-VL-4B-Instruct
 ```
 
@@ -884,7 +934,7 @@ export HF_TOKEN="..."
 docker compose run --rm \
   -e HF_TOKEN \
   vlm-lab \
-  describe data/example.jpg \
+  describe data/diagram_random_clean.png \
   --model-id your-org/your-compatible-model
 ```
 
@@ -915,7 +965,7 @@ Build:
 
 ```bash
 docker build \
-  -t vision-language-engineering-lab:0.2.0 \
+  -t vision-language-engineering-lab:0.2.1 \
   .
 ```
 
@@ -923,7 +973,7 @@ List models:
 
 ```bash
 docker run --rm \
-  vision-language-engineering-lab:0.2.0 \
+  vision-language-engineering-lab:0.2.1 \
   models
 ```
 
@@ -934,8 +984,8 @@ docker run --rm \
   -v "$PWD/data:/app/data:ro" \
   -v "$PWD/models:/app/models" \
   -v vlm-hf-cache:/home/appuser/.cache/huggingface \
-  vision-language-engineering-lab:0.2.0 \
-  describe data/example.jpg \
+  vision-language-engineering-lab:0.2.1 \
+  describe data/diagram_random_clean.png \
   --model-size 2b
 ```
 
@@ -1048,7 +1098,7 @@ Start with the default `2b` preset, reduce image resolution/output length, or us
 
 ### First run is slow
 
-Hub/cache mode may be downloading model files. Use `vlm-lab download-model ...` when you want a predictable explicit download step before inference.
+Hub/cache mode may be downloading model files. For a predictable deployment directory, use `vlm-lab download-model --model-size 2b`, then run with `--model-path models/Qwen3-VL-2B-Instruct`.
 
 ### Fully offline inference
 
@@ -1071,7 +1121,7 @@ python -m pip check
 python -m pip show sentence-transformers torch transformers
 ```
 
-v0.2.0 allows Sentence Transformers 5.4 through the 6.x line, while CI validates the dependency stack on Python 3.11-3.13.
+v0.2.1 allows Sentence Transformers 5.4 through the 6.x line, while CI validates the dependency stack on Python 3.11-3.13.
 
 ### Which Qwen model should I choose?
 
@@ -1091,7 +1141,7 @@ docker compose run --rm --entrypoint /bin/sh vlm-lab -c "ls -la /app/data"
 
 ### Docker keeps downloading models
 
-Use the provided Compose workflow so the named Hugging Face cache volume is mounted, or download the model explicitly into `./models` and use `--model-path`.
+For production-like Docker tests, prefer downloading the model explicitly into `./models` and using `--model-path`. The named Hugging Face cache volume remains useful for ad-hoc Hub-backed experiments.
 
 ---
 

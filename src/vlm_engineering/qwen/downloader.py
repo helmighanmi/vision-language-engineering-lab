@@ -4,7 +4,7 @@
 # Past Role: Researcher in Applied Mathematics
 # Research Profile: https://www.researchgate.net/profile/Ghanmi-Helmi
 
-"""Explicit Hugging Face model download helpers for offline/local execution."""
+"""Explicit Hugging Face model downloads for predictable local/offline use."""
 
 from __future__ import annotations
 
@@ -20,15 +20,42 @@ def download_model_snapshot(
     output_dir: str | Path,
     revision: str | None = None,
 ) -> Path:
-    """Download a complete model snapshot to a user-controlled directory."""
+    """Download a complete model snapshot into a user-controlled directory.
+
+    Using Hugging Face ``snapshot_download(..., local_dir=...)`` keeps the model
+    files under the requested directory instead of the normal global Hub cache.
+    Hugging Face may create a small ``.cache/huggingface`` metadata directory
+    inside the destination so repeated downloads can be updated efficiently.
+
+    Authentication is intentionally not accepted as a CLI argument by this
+    package. Users can authenticate with ``hf auth login`` or ``HF_TOKEN`` so a
+    secret does not have to be placed in shell history.
+    """
+    normalized_model_id = model_id.strip()
+    if not normalized_model_id:
+        raise ValueError("model_id must not be empty.")
+
+    if isinstance(output_dir, str) and not output_dir.strip():
+        raise ValueError("output_dir must not be empty.")
+
+    destination = Path(output_dir).expanduser().resolve()
+
+    if destination.exists() and not destination.is_dir():
+        raise ValueError(f"Model output path is not a directory: {destination}")
+
+    destination.mkdir(parents=True, exist_ok=True)
+
     try:
         from huggingface_hub import snapshot_download
     except ImportError as exc:
         raise OptionalDependencyError(
-            'Install Qwen dependencies with: pip install -e ".[qwen]"'
+            'Install Qwen dependencies with: pip install "vision-language-engineering-lab[qwen]"'
         ) from exc
 
-    destination = Path(output_dir).expanduser().resolve()
-    destination.mkdir(parents=True, exist_ok=True)
-    snapshot_download(repo_id=model_id, local_dir=destination, revision=revision)
+    snapshot_download(
+        repo_id=normalized_model_id,
+        local_dir=destination,
+        revision=revision,
+    )
+
     return destination
