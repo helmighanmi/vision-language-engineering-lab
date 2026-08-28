@@ -6,12 +6,26 @@
 
 services:
   vlm-lab:
-    build: .
+    build:
+      context: .
+      args:
+        PYTHON_VERSION: ${PYTHON_VERSION:-3.12}
+
+    image: vision-language-engineering-lab:local
+
+    environment:
+      HF_HOME: /home/appuser/.cache/huggingface
+      HF_TOKEN: ${HF_TOKEN:-}
+      HF_HUB_OFFLINE: ${HF_HUB_OFFLINE:-0}
+
     volumes:
       - ./models:/app/models
       - ./data:/app/data:ro
       - hf-cache:/home/appuser/.cache/huggingface
-    command: ["--help"]
+
+    command:
+      - "--help"
+
 
 volumes:
   hf-cache:

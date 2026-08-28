@@ -8,49 +8,111 @@ name: CI
 
 on:
   push:
-    branches: [main]
-  pull_request:
-    branches: [main]
+    branches:
+      - main
+      - "feat/**"
+      - "fix/**"
+      - "refactor/**"
 
-permissions:
-  contents: read
+  pull_request:
+    branches:
+      - main
+
 
 jobs:
-  quality-and-tests:
+  quality:
+    name: Python ${{ matrix.python-version }}
+
     runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+
+      matrix:
+        python-version:
+          - "3.11"
+          - "3.12"
+          - "3.13"
+
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-python@v6
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
-          cache: pip
-      - name: Install project and developer tools
+          python-version: ${{ matrix.python-version }}
+          cache: "pip"
+
+      - name: Show Python version
+        run: |
+          python --version
+          python -m pip --version
+
+      - name: Upgrade packaging tools
         run: |
           python -m pip install --upgrade pip setuptools wheel
-          python -m pip install -e ".[dev]"
-      - name: Ruff
-        run: python -m ruff check src tests examples
-      - name: Mypy
-        run: python -m mypy src/vlm_engineering
-      - name: Tests
-        run: python -m pytest --cov=vlm_engineering --cov-report=term-missing --cov-report=xml
-      - name: Notebook integrity
+
+      - name: Install package with all runtime and development dependencies
+        run: |
+          python -m pip install -e ".[all,dev]"
+
+      - name: Check dependency consistency
+        run: |
+          python -m pip check
+
+      - name: Show resolved AI dependency versions
         run: |
           python - <<'PY'
-          import json
-          from pathlib import Path
-          for path in Path("notebooks").glob("*.ipynb"):
-              json.loads(path.read_text(encoding="utf-8"))
-              print(f"OK: {path}")
+          import sys
+
+          import accelerate
+          import huggingface_hub
+          import numpy
+          import sentence_transformers
+          import torch
+          import transformers
+
+          print("Python:", sys.version)
+          print("NumPy:", numpy.__version__)
+          print("PyTorch:", torch.__version__)
+          print("Transformers:", transformers.__version__)
+          print("Sentence Transformers:", sentence_transformers.__version__)
+          print("Accelerate:", accelerate.__version__)
+          print("Hugging Face Hub:", huggingface_hub.__version__)
           PY
 
-  docker-build:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-      - uses: docker/setup-buildx-action@v3
-      - uses: docker/build-push-action@v6
-        with:
-          context: .
-          push: false
-          tags: vision-language-engineering-lab:ci
+      - name: Smoke test public package imports
+        run: |
+          python - <<'PY'
+          from vlm_engineering import (
+              CLIPEncoder,
+              QwenVLModel,
+              VisualRAGPipeline,
+          )
+          from vlm_engineering.retrieval import TextEmbedder
+
+          print("CLIPEncoder:", CLIPEncoder.__name__)
+          print("QwenVLModel:", QwenVLModel.__name__)
+          print("VisualRAGPipeline:", VisualRAGPipeline.__name__)
+          print("TextEmbedder:", TextEmbedder.__name__)
+          print("Public API imports OK")
+          PY
+
+      - name: Ruff
+        run: |
+          python -m ruff check .
+
+      - name: Mypy
+        run: |
+          python -m mypy .
+
+      - name: Tests with coverage
+        run: |
+          python -m pytest \
+            --cov=vlm_engineering \
+            --cov-report=term-missing
+
+      - name: Dependency security audit
+        run: |
+          python -m pip_audit

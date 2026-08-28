@@ -14,11 +14,12 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "vision-language-engineering-lab"
-version = "0.1.0"
+version = "0.2.0"
 description = "Production-oriented Vision-Language engineering with CLIP, Qwen3-VL, visual document understanding and multimodal RAG."
 readme = "README.md"
 
-requires-python = ">=3.12,<3.13"
+# v0.2.0 officially supports Python 3.11, 3.12, and 3.13.
+requires-python = ">=3.11,<3.14"
 
 license = "Apache-2.0"
 
@@ -43,15 +44,26 @@ classifiers = [
   "Intended Audience :: Developers",
   "Intended Audience :: Science/Research",
   "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
   "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
   "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
+
+
+# ---------------------------------------------------------------------------
+# Core runtime dependencies
+# ---------------------------------------------------------------------------
 
 dependencies = [
   "numpy>=1.26,<3",
   "pillow>=12.3,<13",
 ]
 
+
+# ---------------------------------------------------------------------------
+# Project URLs
+# ---------------------------------------------------------------------------
 
 [project.urls]
 Homepage = "https://github.com/helmighanmi/vision-language-engineering-lab"
@@ -60,13 +72,19 @@ Issues = "https://github.com/helmighanmi/vision-language-engineering-lab/issues"
 Documentation = "https://github.com/helmighanmi/vision-language-engineering-lab/tree/main/docs"
 
 
+# ---------------------------------------------------------------------------
+# Optional dependency groups
+# ---------------------------------------------------------------------------
+
 [project.optional-dependencies]
 
+# CLIP / zero-shot image understanding.
 clip = [
   "torch>=2.8,<3",
   "transformers>=4.57,<6",
 ]
 
+# Qwen3-VL generative vision-language functionality.
 qwen = [
   "accelerate>=1.10,<2",
   "huggingface-hub>=0.34,<2",
@@ -75,16 +93,25 @@ qwen = [
   "transformers>=4.57,<6",
 ]
 
+# Text and multimodal retrieval stack.
 retrieval = [
-  "sentence-transformers>=5.4,<6",
+  # Support both Sentence Transformers 5.x and 6.x.
+  # Compatibility across Python 3.11-3.13 is validated in CI.
+  "sentence-transformers>=5.4,<7",
 ]
 
+# Interactive notebook environment.
+#
+# The minimum JupyterLab and Jupyter Server versions are intentionally
+# constrained above known vulnerable older releases.
 notebooks = [
-  "jupyterlab>=4,<5",
+  "jupyterlab>=4.6.3,<5",
+  "jupyter-server>=2.21,<3",
   "matplotlib>=3.9,<4",
   "pandas>=2.2,<3",
 ]
 
+# Development, testing, static analysis, and security tooling.
 dev = [
   "mypy>=1.18,<2",
   "pip-audit>=2.9,<3",
@@ -93,19 +120,31 @@ dev = [
   "ruff>=0.12,<1",
 ]
 
+# Complete runtime feature set.
+#
+# Notebook tooling is intentionally not included here because it is not
+# required by production/runtime users.
 all = [
   "accelerate>=1.10,<2",
   "huggingface-hub>=0.34,<2",
   "qwen-vl-utils>=0.0.14,<1",
-  "sentence-transformers>=5.4,<6",
+  "sentence-transformers>=5.4,<7",
   "torch>=2.8,<3",
   "transformers>=4.57,<6",
 ]
 
 
+# ---------------------------------------------------------------------------
+# Command-line interface
+# ---------------------------------------------------------------------------
+
 [project.scripts]
 vlm-lab = "vlm_engineering.cli:main"
 
+
+# ---------------------------------------------------------------------------
+# Setuptools package discovery
+# ---------------------------------------------------------------------------
 
 [tool.setuptools]
 package-dir = { "" = "src" }
@@ -115,15 +154,28 @@ package-dir = { "" = "src" }
 where = ["src"]
 
 
+# ---------------------------------------------------------------------------
+# Pytest
+# ---------------------------------------------------------------------------
+
 [tool.pytest.ini_options]
 testpaths = [
   "tests",
 ]
+
 addopts = "-ra -q"
 
 
+# ---------------------------------------------------------------------------
+# Ruff
+# ---------------------------------------------------------------------------
+
 [tool.ruff]
-target-version = "py312"
+
+# Ruff targets the oldest officially supported Python version so accidental
+# use of Python 3.12+ syntax is caught before release.
+target-version = "py311"
+
 line-length = 110
 
 extend-exclude = [
@@ -145,8 +197,22 @@ select = [
 ]
 
 
+# ---------------------------------------------------------------------------
+# Mypy
+# ---------------------------------------------------------------------------
+
 [tool.mypy]
-python_version = "3.12"
+
+# Do not force a Python version here.
+#
+# GitHub Actions executes mypy natively under each supported interpreter:
+#
+#   Python 3.11
+#   Python 3.12
+#   Python 3.13
+#
+# This avoids third-party stub incompatibilities caused by running one
+# interpreter while asking mypy to emulate another.
 
 check_untyped_defs = true
 no_implicit_optional = true
@@ -157,11 +223,24 @@ packages = [
   "vlm_engineering",
 ]
 
+exclude = [
+  "^\\.venv/",
+  "^venv/",
+  "^build/",
+  "^dist/",
+  "^notebooks/",
+]
+
+
+# ---------------------------------------------------------------------------
+# Coverage
+# ---------------------------------------------------------------------------
 
 [tool.coverage.run]
 source = [
   "vlm_engineering",
 ]
+
 branch = true
 
 

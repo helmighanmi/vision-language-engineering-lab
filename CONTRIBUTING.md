@@ -8,8 +8,30 @@ Research Profile: https://www.researchgate.net/profile/Ghanmi-Helmi
 
 # Contributing
 
-1. Create and activate a Python 3.12 virtual environment.
-2. Install `python -m pip install -e ".[dev]"`.
-3. Keep reusable logic under `src/vlm_engineering`; notebooks should import it.
-4. Run `make quality` before opening a pull request.
-5. Do not add model weights, caches, secrets or third-party training material to Git.
+Contributions are welcome.
+
+Vision-Language Engineering Lab is intended to be an open engineering and
+learning project around CLIP, Qwen3-VL, document understanding, multimodal
+retrieval and RAG.
+
+Contributions from developers, AI/ML engineers, researchers, students and
+practitioners are encouraged.
+
+## Supported Python versions
+
+The current development target is:
+
+- Python 3.11
+- Python 3.12
+- Python 3.13
+
+Python 3.12 is the default local and Docker development baseline, while CI
+validates the package against every officially supported Python version.
+
+## Development setup
+
+Clone the repository and create a virtual environment:
+
+```bash
+python -m venv .venv
+source .venv/bin/activate
