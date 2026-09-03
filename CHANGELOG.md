@@ -17,7 +17,7 @@ Research Profile: https://www.researchgate.net/profile/Ghanmi-Helmi
 - Added model-selection tests and user guidance for sizing, memory, offline loading and troubleshooting.
 - Added a nine-scenario application cookbook covering captioning, VQA, diagram JSON, RAG chunking, text-only visual RAG, multimodal retrieval, model comparison, offline loading and batch analysis.
 
-## 1.0.0 - Production-oriented refactor
+## 0.2.1 - Production-oriented refactor
 
 - Repositioned the repository as Vision-Language Engineering Lab.
 - Added reusable CLIP encoder APIs.
