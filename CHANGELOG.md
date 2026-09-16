@@ -8,7 +8,7 @@ Research Profile: https://www.researchgate.net/profile/Ghanmi-Helmi
 
 # Changelog
 
-## 0.3.0 — Unreleased: Multimodal retrieval / RAG
+## 0.3.1 — Unreleased: Multimodal retrieval / RAG
 
 - Harden Qwen embedding/reranking adapters; preserve old names as aliases.
 - Add 2B/8B/custom/local selection, batch size 1, dimensions, output validation,

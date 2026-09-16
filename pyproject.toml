@@ -14,7 +14,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "vision-language-engineering-lab"
-version = "0.3.0"
+version = "0.3.1"
 description = "Production-oriented Vision-Language engineering with CLIP, Qwen3-VL, visual document understanding and multimodal RAG."
 readme = "README.md"
 requires-python = ">=3.11,<3.14"
