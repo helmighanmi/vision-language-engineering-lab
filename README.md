@@ -14,9 +14,9 @@ Research Profile: https://www.researchgate.net/profile/Ghanmi-Helmi
 
 The implementation lives under `src/vlm_engineering/`. Notebooks are analysis/demo clients, `examples/` provides small API examples, and `scenarios/` contains end-to-end application recipes.
 
-> **v0.3.0 compatibility target:** Python 3.11, 3.12, and 3.13.
+> **v0.3.1 compatibility target:** Python 3.11, 3.12, and 3.13.
 
-v0.3.0 expands the project from generative VLM and text-oriented visual RAG into a **two-stage multimodal retrieval stack**:
+v0.3.1 expands the project from generative VLM and text-oriented visual RAG into a **two-stage multimodal retrieval stack**:
 
 ```text
 query
@@ -425,7 +425,7 @@ The project intentionally separates:
 
 ## 3. Python compatibility
 
-v0.3.0 targets:
+v0.3.1 targets:
 
 | Python | Support |
 |---|---:|
@@ -831,7 +831,7 @@ The original `image_ref` is retained so the final VLM can inspect the original i
 
 ---
 
-## 13. Multimodal retrieval and RAG — v0.3.0
+## 13. Multimodal retrieval and RAG — v0.3.1
 
 ### 13.1 Installation
 
@@ -1089,7 +1089,7 @@ pipeline = config.build_pipeline(
 
 ### 13.9 Reliability and operational errors
 
-v0.3.0 strengthens user-facing validation around common operational failures, including:
+v0.3.1 strengthens user-facing validation around common operational failures, including:
 
 - missing optional dependencies
 - invalid multimodal input
@@ -1358,13 +1358,13 @@ docker compose run --rm \
 
 ```bash
 docker build \
-  -t vision-language-engineering-lab:0.3.0 \
+  -t vision-language-engineering-lab:0.3.1 \
   .
 ```
 
 ```bash
 docker run --rm \
-  vision-language-engineering-lab:0.3.0 \
+  vision-language-engineering-lab:0.3.1 \
   models
 ```
 
@@ -1402,7 +1402,7 @@ The project uses:
 | `pip check` | installed dependency consistency |
 | `pip-audit` | known dependency-vulnerability auditing |
 
-For the v0.3.0 release branch, deterministic validation reached:
+For the v0.3.1 release branch, deterministic validation reached:
 
 ```text
 340 passed
