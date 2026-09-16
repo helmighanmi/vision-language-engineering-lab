@@ -8,13 +8,33 @@ Research Profile: https://www.researchgate.net/profile/Ghanmi-Helmi
 
 # Vision-Language Engineering Lab
 
-**CLIP, configurable Qwen3-VL, visual document understanding, semantic visual chunking, and multimodal RAG.**
+**Production-oriented Vision-Language engineering with CLIP, configurable Qwen3-VL, document understanding, multimodal retrieval, reranking, and RAG.**
 
-`vision-language-engineering-lab` is a production-oriented learning and engineering package for building Vision-Language applications with CLIP, Qwen3-VL, document understanding, retrieval, reranking, and multimodal RAG.
+`vision-language-engineering-lab` is a Python package for building and studying Vision-Language applications with reusable engineering patterns rather than notebook-only demos.
 
-The reusable implementation lives under `src/vlm_engineering`. Notebooks are analysis/demo clients only, while `examples/` and `scenarios/` provide runnable package usage patterns.
+The implementation lives under `src/vlm_engineering/`. Notebooks are analysis/demo clients, `examples/` provides small API examples, and `scenarios/` contains end-to-end application recipes.
 
-> **v0.3.0 compatibility target:** Python 3.11, 3.12, and 3.13. Compatibility is validated in CI on every supported Python version before release.
+> **v0.3.0 compatibility target:** Python 3.11, 3.12, and 3.13.
+
+v0.3.0 expands the project from generative VLM and text-oriented visual RAG into a **two-stage multimodal retrieval stack**:
+
+```text
+query
+  ↓
+Qwen3-VL-Embedding
+  ↓
+vector retrieval / candidate_k
+  ↓
+Qwen3-VL-Reranker
+  ↓
+top_k multimodal evidence
+  ↓
+original text + images
+  ↓
+Qwen3-VL generation
+  ↓
+grounded answer
+```
 
 Contributions are welcome. See [Contributing](#20-contributing) and [`CONTRIBUTING.md`](CONTRIBUTING.md).
 
@@ -22,9 +42,33 @@ Contributions are welcome. See [Contributing](#20-contributing) and [`CONTRIBUTI
 
 ## 1. Quick start
 
-### Install from the repository
+### Install from PyPI
 
-For the current development version:
+Core package:
+
+```bash
+python -m pip install vision-language-engineering-lab
+```
+
+Qwen3-VL generation:
+
+```bash
+python -m pip install "vision-language-engineering-lab[qwen]"
+```
+
+Qwen multimodal embedding and reranking:
+
+```bash
+python -m pip install "vision-language-engineering-lab[qwen-retrieval]"
+```
+
+All runtime features:
+
+```bash
+python -m pip install "vision-language-engineering-lab[all]"
+```
+
+### Install from the repository
 
 ```bash
 git clone https://github.com/helmighanmi/vision-language-engineering-lab.git
@@ -32,6 +76,7 @@ cd vision-language-engineering-lab
 
 python -m venv .venv
 source .venv/bin/activate
+
 python -m pip install --upgrade pip setuptools wheel
 python -m pip install -e ".[all]"
 ```
@@ -41,19 +86,14 @@ Windows PowerShell:
 ```powershell
 py -m venv .venv
 .venv\Scripts\Activate.ps1
+
 python -m pip install --upgrade pip setuptools wheel
 python -m pip install -e ".[all]"
 ```
 
-After a public PyPI release, users can install the package with:
+### Example 1 — Real-image smoke test with Qwen3-VL 2B
 
-```bash
-python -m pip install "vision-language-engineering-lab[all]"
-```
-
-### Example 1 — Real-image smoke test with the default Qwen3-VL 2B model
-
-A repository clone includes `data/diagram_random_clean.png` as a real-image smoke-test asset. Run:
+A repository clone includes `data/diagram_random_clean.png` as a real-image smoke-test asset:
 
 ```bash
 vlm-lab describe data/diagram_random_clean.png \
@@ -61,9 +101,7 @@ vlm-lab describe data/diagram_random_clean.png \
   --prompt "Describe this image accurately. List the main objects, text, and important visual relationships."
 ```
 
-The first Hub-backed run may download several gigabytes of model weights. Later runs reuse the Hugging Face cache. For predictable local/offline and Docker deployments, use the project-local model workflow in [Hugging Face cache and project-local models](#7-hugging-face-cache-and-project-local-models).
-
-The equivalent Python API is:
+Equivalent Python API:
 
 ```python
 from vlm_engineering import QwenVLModel
@@ -72,99 +110,223 @@ model = QwenVLModel(model_size="2b")
 
 answer = model.generate(
     "data/diagram_random_clean.png",
-    "Describe this image accurately. List the main objects, text, and important visual relationships.",
+    (
+        "Describe this image accurately. "
+        "List the main objects, text, and important visual relationships."
+    ),
 )
 
 print(answer)
 ```
 
-The default model is:
+The default generative model is:
 
 ```text
 Qwen/Qwen3-VL-2B-Instruct
 ```
 
-If you installed the package from PyPI instead of cloning the repository, use your own image path:
+If you installed from PyPI rather than cloning the repository, use your own image path:
 
 ```bash
 vlm-lab describe /path/to/your/image.png \
   --model-size 2b \
-  --prompt "Describe this image accurately. List the main objects, text, and important visual relationships."
+  --prompt "Describe this image accurately."
 ```
 
-### Example 2 — Select the 4B or 8B Qwen3-VL model
+### Example 2 — Multimodal embeddings
+
+```python
+from vlm_engineering import QwenVLEmbedder
+
+embedder = QwenVLEmbedder(
+    model_size="2b",
+    dimensions=1024,
+)
+
+text_vector = embedder.embed_text(
+    "Find an architecture diagram containing a cache."
+)
+
+image_vector = embedder.embed_image(
+    "data/diagram_random_clean.png"
+)
+
+mixed_vectors = embedder.encode(
+    [
+        {"text": "Redis caching architecture"},
+        {"image": "data/diagram_random_clean.png"},
+        {
+            "text": "Architecture diagram",
+            "image": "data/diagram_random_clean.png",
+        },
+    ]
+)
+
+print(text_vector.shape)
+print(image_vector.shape)
+print(mixed_vectors.shape)
+```
+
+The retrieval input contract is intentionally explicit:
+
+```python
+{"text": "..."}
+{"image": "..."}
+{"text": "...", "image": "..."}
+```
+
+Unknown fields, empty inputs, missing local images, corrupt files, and unsupported inputs are rejected before expensive model inference whenever possible.
+
+### Example 3 — Multimodal reranking
+
+```python
+from vlm_engineering import QwenVLReranker
+
+documents = [
+    {"text": "Redis provides application caching."},
+    {"text": "PostgreSQL stores persistent application data."},
+    {"image": "data/diagram_random_clean.png"},
+]
+
+reranker = QwenVLReranker(model_size="2b")
+
+scores = reranker.score(
+    "Find the evidence related to caching.",
+    documents,
+)
+
+ranked = reranker.rerank(
+    "Find the evidence related to caching.",
+    documents,
+    top_k=2,
+)
+
+print(scores)
+for result in ranked:
+    print(result.rank, result.score, result.item)
+```
+
+Raw scores and normalized scores are both supported. Normalized reranker scores are relevance transformations, not calibrated probabilities.
+
+### Example 4 — True multimodal RAG
+
+```python
+from vlm_engineering import (
+    MultimodalRAGPipeline,
+    NativePageContent,
+    QwenVLEmbedder,
+    QwenVLModel,
+    QwenVLReranker,
+    VisualAnalysis,
+    VisualChunkBuilder,
+)
+
+chunk = VisualChunkBuilder().build(
+    NativePageContent(
+        document_id="demo",
+        page=1,
+        source_file="architecture.pdf",
+        image_ref="data/diagram_random_clean.png",
+    ),
+    VisualAnalysis(
+        page_type="diagram",
+        title="Architecture",
+        summary="Technical architecture diagram.",
+    ),
+)
+
+pipeline = MultimodalRAGPipeline(
+    embedder=QwenVLEmbedder(model_size="2b"),
+    generator=QwenVLModel(model_size="2b"),
+    reranker=QwenVLReranker(model_size="2b"),
+    candidate_k=12,
+    top_k=3,
+    max_new_tokens=256,
+)
+
+pipeline.index_chunks([chunk])
+
+answer = pipeline.answer(
+    "Which components are connected?"
+)
+
+print(answer.answer)
+```
+
+The pipeline performs:
+
+```text
+multimodal embedding
+    ↓
+candidate retrieval
+    ↓
+multimodal reranking
+    ↓
+selected original evidence
+    ↓
+Qwen3-VL generation
+```
+
+### Example 5 — Select 2B / 4B / 8B generative Qwen3-VL
 
 ```python
 from vlm_engineering import QwenVLModel
 
+model_2b = QwenVLModel(model_size="2b")
 model_4b = QwenVLModel(model_size="4b")
 model_8b = QwenVLModel(model_size="8b")
 
+print(model_2b.model_source)
 print(model_4b.model_source)
 print(model_8b.model_source)
 ```
 
-Available presets:
+| Preset | Hugging Face model | Typical use |
+|---|---|---|
+| `2b` | `Qwen/Qwen3-VL-2B-Instruct` | default development / lower-resource inference |
+| `4b` | `Qwen/Qwen3-VL-4B-Instruct` | balanced quality/resource option |
+| `8b` | `Qwen/Qwen3-VL-8B-Instruct` | stronger hardware / higher-capacity inference |
 
-| Preset | Hugging Face model | Size class | Typical use |
-|---|---|---:|---|
-| `2b` | `Qwen/Qwen3-VL-2B-Instruct` | ~2B parameters | Default, learning, local prototypes |
-| `4b` | `Qwen/Qwen3-VL-4B-Instruct` | ~4B parameters | Balanced quality/resource trade-off |
-| `8b` | `Qwen/Qwen3-VL-8B-Instruct` | ~8B parameters | Higher-capacity inference on stronger hardware |
-
-### Example 3 — Use an explicit compatible Hugging Face model
-
-```python
-from vlm_engineering import QwenVLModel
-
-model = QwenVLModel.from_hub(
-    "Qwen/Qwen3-VL-4B-Instruct"
-)
-
-print(
-    model.generate(
-        "data/architecture.png",
-        "Explain the architecture and the relationships between components.",
-    )
-)
-```
-
-### Example 4 — Load a model locally for offline inference
+### Example 6 — Local/offline model loading
 
 ```python
 from vlm_engineering import QwenVLModel
 
 model = QwenVLModel.from_local(
-    "models/Qwen3-VL-4B-Instruct"
+    "models/Qwen3-VL-2B-Instruct"
 )
 
 answer = model.generate(
-    "data/architecture.png",
-    "Describe the diagram using only the visual evidence.",
+    "data/diagram_random_clean.png",
+    "Describe the diagram using only the visible evidence.",
 )
 
 print(answer)
 ```
 
-`from_local()` sets local-only loading and does not silently fall back to the Hugging Face Hub.
+`from_local()` uses local-files-only loading and does not silently fall back to the Hugging Face Hub.
 
-### Example 5 — Structured diagram/document analysis
+### Example 7 — Structured document analysis
 
 ```python
 from vlm_engineering import QwenVLModel
 from vlm_engineering.documents import analyze_visual_document
 
 model = QwenVLModel(model_size="4b")
-analysis = analyze_visual_document(model, "data/architecture.png")
+
+analysis = analyze_visual_document(
+    model,
+    "data/architecture.png",
+)
 
 print(analysis.to_dict())
 ```
 
 The structured result can contain page type, title, summary, entities, relations, important text, and uncertainties.
 
-### Example 6 — Text embedding for visual RAG
+### Example 8 — Text-only visual RAG
 
-A common pattern is to use a VLM to convert visual evidence into faithful text and then index that text with Sentence Transformers.
+When an existing RAG platform supports only text embeddings, the VLM can first turn visual evidence into faithful retrieval text:
 
 ```python
 from vlm_engineering.retrieval import TextEmbedder
@@ -181,31 +343,36 @@ embeddings = embedder.encode(
 print(embeddings.shape)
 ```
 
-### Example 7 — CLI
+### Example 9 — CLI
 
 ```bash
-# List Qwen presets
+# List generative Qwen presets
 vlm-lab models
 
-# Default 2B
-vlm-lab describe data/diagram_random_clean.png
+# Describe an image
+vlm-lab describe data/diagram_random_clean.png --model-size 2b
 
-# 4B
-vlm-lab describe data/diagram_random_clean.png --model-size 4b
+# Structured analysis
+vlm-lab analyze data/architecture.png --model-size 4b
 
-# 8B
-vlm-lab analyze data/architecture.png --model-size 8b
+# Multimodal embedding
+vlm-lab embed \
+  --text "Find a cache architecture" \
+  --model-size 2b \
+  --dimensions 1024
 
-# Explicit Hugging Face model
-vlm-lab describe data/diagram_random_clean.png \
-  --model-id Qwen/Qwen3-VL-4B-Instruct
+# Reranking
+vlm-lab rerank \
+  --query "Find the cache architecture" \
+  --documents-json candidates.json \
+  --model-size 2b
 
-# Local/offline model
-vlm-lab describe data/diagram_random_clean.png \
-  --model-path models/Qwen3-VL-4B-Instruct
+# Validate a runtime profile without loading large models
+vlm-lab validate-config \
+  configs/qwen_multimodal_rag.example.yaml
 ```
 
-For complete end-to-end workflows, see [`scenarios/README.md`](scenarios/README.md).
+For complete workflows, see [`scenarios/README.md`](scenarios/README.md).
 
 ---
 
@@ -215,17 +382,34 @@ For complete end-to-end workflows, see [`scenarios/README.md`](scenarios/README.
 CLIP foundations
    -> image/text embeddings and zero-shot similarity
 
-Qwen3-VL Instruct (2B / 4B / 8B or custom model ID)
-   -> image description, VQA, diagram/table/screenshot understanding, structured JSON
+Qwen3-VL Instruct
+   -> image description
+   -> VQA
+   -> diagram/table/screenshot understanding
+   -> structured visual analysis
 
 Document understanding
-   -> native text + visual semantics -> traceable chunks
+   -> native/OCR evidence + visual semantics
+   -> traceable VisualChunk objects
 
-Visual RAG
-   -> VLM descriptions + normal text embedder
+Text-only visual RAG
+   -> VLM descriptions
+   -> normal text embeddings
+   -> retrieval
+   -> original-image grounding
+
+Multimodal retrieval
+   -> Qwen3-VL-Embedding
+   -> vector recall
+   -> Qwen3-VL-Reranker
+   -> top-k multimodal evidence
 
 Multimodal RAG
-   -> Qwen3-VL-Embedding -> retrieval -> Qwen3-VL-Reranker -> Qwen3-VL answer
+   -> embedding
+   -> candidate retrieval
+   -> reranking
+   -> original text/images
+   -> Qwen3-VL answer
 ```
 
 The project intentionally separates:
@@ -233,7 +417,7 @@ The project intentionally separates:
 - reusable package code under `src/vlm_engineering/`
 - deterministic tests under `tests/`
 - small API examples under `examples/`
-- end-to-end application recipes under `scenarios/`
+- end-to-end recipes under `scenarios/`
 - exploratory notebooks under `notebooks/`
 - architecture and operational documentation under `docs/`
 
@@ -255,15 +439,13 @@ The package metadata declares:
 >=3.11,<3.14
 ```
 
-GitHub Actions validates the supported versions independently. The normal compatibility matrix checks lightweight package installation, public imports, Ruff, mypy, deterministic pytest, coverage and the core dependency audit. The manual runtime compatibility workflow checks optional ML imports on the same Python versions without downloading weights.
+GitHub Actions validates supported Python versions independently.
 
-Ruff targets Python 3.11 syntax so package code does not accidentally rely on Python 3.12+ syntax.
+Ruff targets Python 3.11 syntax so package code does not accidentally depend on Python 3.12+ syntax.
 
 ### Google Colab
 
-Google Colab can use the package directly when its runtime Python version is within the supported range.
-
-After the public v0.2.1 release:
+When the active Colab runtime Python version is supported:
 
 ```python
 !pip install "vision-language-engineering-lab[all]"
@@ -278,7 +460,7 @@ model = QwenVLModel(model_size="2b")
 print(model.model_source)
 ```
 
-For GPU workloads, verify the Colab runtime has a GPU enabled before loading large model weights.
+For Qwen workloads, enable a GPU runtime where available.
 
 ---
 
@@ -288,9 +470,9 @@ For GPU workloads, verify the Colab runtime has a GPU enabled before loading lar
 
 - Python **3.11, 3.12, or 3.13**
 - Git for source installs
-- Enough disk space for the model(s) you choose to download
-- A GPU is strongly recommended for Qwen3-VL inference
-- CLIP and lightweight package tests can run on CPU
+- enough disk space for selected models
+- a GPU is strongly recommended for practical Qwen3-VL inference
+- CPU-only execution may work for some paths but can be slow or require offloading
 
 ### Create a virtual environment
 
@@ -330,10 +512,22 @@ Qwen3-VL generation:
 python -m pip install -e ".[qwen]"
 ```
 
-Retrieval / Sentence Transformers:
+Text retrieval:
 
 ```bash
 python -m pip install -e ".[retrieval]"
+```
+
+Qwen multimodal retrieval:
+
+```bash
+python -m pip install -e ".[qwen-retrieval]"
+```
+
+Runtime YAML profiles:
+
+```bash
+python -m pip install -e ".[config]"
 ```
 
 All runtime features:
@@ -367,51 +561,47 @@ vlm-lab models
 
 ## 5. Qwen models used by this project
 
-The default generative VLM is **`Qwen/Qwen3-VL-2B-Instruct`**. The package also provides friendly 4B and 8B presets and supports explicit compatible Hugging Face model IDs.
+### Generative VLM
 
-| Preset | Hugging Face model | Size class | Recommended use |
-|---|---|---:|---|
-| `2b` | `Qwen/Qwen3-VL-2B-Instruct` | ~2B parameters | **Default.** Learning, local prototypes, lower resource use |
-| `4b` | `Qwen/Qwen3-VL-4B-Instruct` | ~4B parameters | Balanced quality/resource option |
-| `8b` | `Qwen/Qwen3-VL-8B-Instruct` | ~8B parameters | Higher-capacity inference on stronger hardware |
+| Preset | Hugging Face model | Role |
+|---|---|---|
+| `2b` | `Qwen/Qwen3-VL-2B-Instruct` | default generative VLM |
+| `4b` | `Qwen/Qwen3-VL-4B-Instruct` | balanced generative option |
+| `8b` | `Qwen/Qwen3-VL-8B-Instruct` | higher-capacity generative option |
 
-Official model pages:
+### Multimodal embedding
 
-- https://huggingface.co/Qwen/Qwen3-VL-2B-Instruct
-- https://huggingface.co/Qwen/Qwen3-VL-4B-Instruct
-- https://huggingface.co/Qwen/Qwen3-VL-8B-Instruct
+| Preset | Hugging Face model | Role |
+|---|---|---|
+| `2b` | `Qwen/Qwen3-VL-Embedding-2B` | multimodal recall / shared embedding space |
+| `8b` | `Qwen/Qwen3-VL-Embedding-8B` | higher-capacity multimodal embeddings |
 
-The size labels are parameter classes, not exact runtime-memory requirements. A rough BF16 weight-only floor is about 2 bytes per parameter (~4 GB for 2B, ~8 GB for 4B, ~16 GB for 8B). Real inference needs additional memory for the vision encoder, activations, KV cache, image tokens, framework overhead, and generation state.
+### Multimodal reranking
 
-Other Qwen models in the retrieval stack:
+| Preset | Hugging Face model | Role |
+|---|---|---|
+| `2b` | `Qwen/Qwen3-VL-Reranker-2B` | second-stage candidate reranking |
+| `8b` | `Qwen/Qwen3-VL-Reranker-8B` | higher-capacity reranking |
 
-| Model | Role |
-|---|---|
-| `Qwen/Qwen3-VL-Embedding-2B` | Multimodal retrieval embeddings |
-| `Qwen/Qwen3-VL-Reranker-2B` | Second-stage candidate reranking |
+The size labels are parameter classes, not exact runtime-memory requirements.
 
-Qwen3-VL is supported through current Hugging Face Transformers. `trust_remote_code` is disabled by default and is not required for the normal Qwen3-VL path implemented by this package.
+Real inference also needs memory for image processing, activations, framework overhead, KV cache/generation state, and model-specific runtime structures.
+
+`trust_remote_code` remains disabled by default where supported by the package.
 
 ---
 
 ## 6. Model selection and loading
 
-### Default 2B
+### Generative model
 
 ```python
 from vlm_engineering import QwenVLModel
 
-model = QwenVLModel()
+model = QwenVLModel(model_size="2b")
 ```
 
-### 4B or 8B preset
-
-```python
-model_4b = QwenVLModel(model_size="4b")
-model_8b = QwenVLModel.from_preset("8b")
-```
-
-### Explicit Hugging Face model ID
+Explicit Hub model:
 
 ```python
 model = QwenVLModel.from_hub(
@@ -419,7 +609,7 @@ model = QwenVLModel.from_hub(
 )
 ```
 
-### Explicit local model
+Explicit local model:
 
 ```python
 model = QwenVLModel.from_local(
@@ -427,40 +617,56 @@ model = QwenVLModel.from_local(
 )
 ```
 
-CLI model-selection flags are mutually exclusive:
-
-```text
---model-size
---model-id
---model-path
-```
-
-This prevents the CLI from silently selecting a different source than the user intended.
-
-### Programmatic registry access
+### Embedding model
 
 ```python
-from vlm_engineering import QWEN3_VL_INSTRUCT_MODELS
+from vlm_engineering import QwenVLEmbedder
 
-for alias, preset in QWEN3_VL_INSTRUCT_MODELS.items():
-    print(alias, preset.model_id, preset.parameter_class)
+embedder = QwenVLEmbedder(
+    model_size="2b",
+    dimensions=1024,
+)
 ```
+
+### Reranker
+
+```python
+from vlm_engineering import QwenVLReranker
+
+reranker = QwenVLReranker(
+    model_size="2b",
+)
+```
+
+Model selectors are intentionally explicit. Depending on the API/CLI path, use one of:
+
+```text
+model_size
+model_id
+model_path
+```
+
+Mutually exclusive model-source options prevent accidental fallback to a different model than the one requested.
 
 ---
 
 ## 7. Hugging Face cache and project-local models
 
-### Two supported storage modes
+Two storage modes are supported.
 
-For a quick experiment, Hub-backed inference can use the normal Hugging Face cache:
+### Hub/cache mode
+
+For quick experimentation:
 
 ```bash
-vlm-lab describe data/diagram_random_clean.png --model-size 2b
+vlm-lab describe \
+  data/diagram_random_clean.png \
+  --model-size 2b
 ```
 
-For Docker, offline execution, explicit cleanup, and reproducible deployments, prefer an explicit project-local model under `models/`.
+The Hugging Face Hub cache is typically reused automatically on subsequent runs.
 
-### Recommended: download the 2B preset into `models/`
+### Project-local generative model
 
 ```bash
 vlm-lab download-model \
@@ -468,69 +674,42 @@ vlm-lab download-model \
   --output models/Qwen3-VL-2B-Instruct
 ```
 
-The `--output` argument is optional. This shorter command uses the same deterministic destination:
+Then:
 
 ```bash
-vlm-lab download-model --model-size 2b
-```
-
-Default destination:
-
-```text
-models/Qwen3-VL-2B-Instruct/
-```
-
-Hugging Face `snapshot_download(..., local_dir=...)` places the model files under the requested directory instead of the normal global Hub cache. Hugging Face may create a small `.cache/huggingface/` metadata directory inside the local model directory.
-
-### Run from the explicit local model directory
-
-```bash
-vlm-lab describe data/diagram_random_clean.png \
-  --model-path models/Qwen3-VL-2B-Instruct \
-  --prompt "Describe this image accurately. List the main objects, text, and important visual relationships."
-```
-
-### Verify fully offline loading
-
-After the download succeeds:
-
-```bash
-HF_HUB_OFFLINE=1 vlm-lab describe data/diagram_random_clean.png \
+HF_HUB_OFFLINE=1 vlm-lab describe \
+  data/diagram_random_clean.png \
   --model-path models/Qwen3-VL-2B-Instruct \
   --prompt "Describe this image accurately."
 ```
 
-`QwenVLModel.from_local()` enables local-files-only loading and does not silently fall back to the Hub.
-
-### Download another preset or explicit model ID
-
-```bash
-vlm-lab download-model --model-size 4b
-vlm-lab download-model --model-size 8b
-```
+### Project-local embedding model
 
 ```bash
 vlm-lab download-model \
-  --model-id Qwen/Qwen3-VL-8B-Instruct \
-  --output models/qwen8b
+  --embedding-size 2b \
+  --output models/Qwen3-VL-Embedding-2B
 ```
 
-### Clean the old global cache only after offline verification
-
-Never remove the global Hugging Face cache while a model is downloading or running. First verify the local model with `HF_HUB_OFFLINE=1`, then inspect the old cache:
+Example offline use:
 
 ```bash
-du -sh ~/.cache/huggingface/hub 2>/dev/null
-hf cache list --sort size:desc
+HF_HUB_OFFLINE=1 vlm-lab embed \
+  --text "architecture diagram" \
+  --model-path models/Qwen3-VL-Embedding-2B
 ```
 
-If disk space is needed after the offline test succeeds, remove only the old Qwen cache entry you no longer need:
+### Project-local reranker
 
 ```bash
-rm -rf ~/.cache/huggingface/hub/models--Qwen--Qwen3-VL-2B-Instruct
+vlm-lab download-model \
+  --reranker-size 2b \
+  --output models/Qwen3-VL-Reranker-2B
 ```
 
-The package never deletes a user's shared Hugging Face cache automatically.
+The package does **not** delete a user's shared Hugging Face cache automatically.
+
+Model directories under `models/` are intended for local deployment and remain outside source control.
 
 ---
 
@@ -540,13 +719,13 @@ The package never deletes a user's shared Hugging Face cache automatically.
 
 Default: **False**.
 
-```bash
-vlm-lab describe image.jpg --trust-remote-code
-```
+Only enable repository-provided Python code for model repositories you have reviewed and trust.
 
-Only enable this for a model repository you trust and that genuinely requires repository-provided Python code. Enabling it expands the security trust boundary.
+### Device / cache / revision
 
-### Device and dtype
+The Qwen wrappers support configurable model-loading behavior appropriate to their backend, including device selection, cache location, revision selection, and local-only loading.
+
+For generative inference:
 
 ```python
 from vlm_engineering import QwenVLModel
@@ -558,7 +737,7 @@ model = QwenVLModel(
 )
 ```
 
-Validate the exact dtype, quantization strategy, backend, and model size on your target hardware before production deployment.
+For large multimodal retrieval models, conservative defaults are preferred. Embedding/reranking default to small batch sizes to reduce accidental memory pressure.
 
 ---
 
@@ -576,16 +755,15 @@ vlm-lab describe photo.jpg \
 ```bash
 vlm-lab describe dashboard.png \
   --model-size 4b \
-  --prompt "Which metric increased the most and what evidence supports it?"
+  --prompt "Which metric increased the most and what visual evidence supports it?"
 ```
 
 ### Diagram / architecture understanding
 
 ```bash
-vlm-lab analyze architecture.png --model-size 4b
+vlm-lab analyze architecture.png \
+  --model-size 4b
 ```
-
-The `analyze` command asks the VLM for structured JSON containing page type, title, summary, entities, relations, important text, and uncertainties.
 
 ### Screenshot / UI understanding
 
@@ -593,7 +771,7 @@ Use `describe` or `analyze` for dashboards, application screenshots, forms, and 
 
 ### Tables and document pages
 
-Render the page as an image and request structured extraction. For production documents, preserve native/OCR text separately and use the VLM for layout, grouping, relationships, and visual semantics.
+Render a page as an image and request structured extraction. For production document workflows, preserve native/OCR text separately and use the VLM for layout, grouping, relationships, and visual semantics.
 
 ---
 
@@ -610,7 +788,7 @@ long deterministic text                 relationships, visual meaning
                    RAG-ready chunk
 ```
 
-A VLM can replace OCR in some workflows, but the strongest document pipeline usually keeps native/OCR evidence for literal accuracy and adds VLM semantics where visual structure matters.
+A VLM can replace OCR in some workflows, but robust document pipelines often preserve native/OCR evidence for literal accuracy while adding VLM semantics where visual structure matters.
 
 ---
 
@@ -633,180 +811,377 @@ The resulting `VisualChunk` preserves traceability such as document ID, source f
 
 ```text
 image/page
-   -> Qwen3-VL description / structured analysis
-   -> retrieval text
-   -> Sentence Transformers text embedder
-   -> vector index / vector database
+   ↓
+Qwen3-VL description / structured analysis
+   ↓
+retrieval text
+   ↓
+Sentence Transformers text embedder
+   ↓
+vector index / vector database
 ```
 
-This is useful when an existing RAG platform only supports text embeddings. The VLM turns visual evidence into searchable text while the original `image_ref` is retained for final grounding.
+This path is useful when an existing RAG platform supports only text embeddings.
 
 ```bash
 python examples/text_only_visual_rag.py
 ```
 
-After retrieval, the final VLM can inspect the original image again rather than trusting only the generated description.
+The original `image_ref` is retained so the final VLM can inspect the original image rather than relying only on generated descriptions.
 
 ---
 
-## 13. Multimodal retrieval and RAG — implemented in v0.3.0
+## 13. Multimodal retrieval and RAG — v0.3.0
 
-Install the multimodal backend and optional runtime profiles:
+### 13.1 Installation
 
 ```bash
 python -m pip install -e ".[qwen-retrieval,config]"
 ```
 
-`qwen-retrieval` uses `sentence-transformers[image]>=5.4,<7`, Transformers
-`>=5.0,<6`, torch and torchvision. The reranker's Sentence Transformers
-`any-to-any` path requires Transformers v5+, even though direct Qwen generation
-can use 4.57. See [upstream findings](docs/multimodal-retrieval.md#upstream-basis).
+The retrieval stack is designed around:
 
-### Embedding and reranking
-
-```python
-from vlm_engineering import QwenVLEmbedder, QwenVLReranker
-
-embedder = QwenVLEmbedder(model_size="2b", dimensions=1024)
-text_vector = embedder.embed_text("architecture diagram")
-image_vector = embedder.embed_image("data/diagram_random_clean.png")
-documents = [
-    {"text": "Redis provides caching."},
-    {"image": "data/diagram_random_clean.png"},
-    {"text": "Architecture", "image": "data/diagram_random_clean.png"},
-]
-vectors = embedder.encode(documents)
-reranker = QwenVLReranker(model_size="2b")
-scores = reranker.score("Find the cache", documents)  # raw logits
-ranked = reranker.rerank("Find the cache", documents, top_k=2)
+```text
+Qwen3-VL-Embedding
+        ↓
+candidate recall
+        ↓
+Qwen3-VL-Reranker
+        ↓
+precision-oriented reranking
+        ↓
+Qwen3-VL generation
 ```
 
-Both adapters default to `batch_size=1`, lazy loading, and
-`trust_remote_code=False`. Select `2b`, `8b`, a compatible `model_id`, or an
-explicit `model_path`; those selectors are mutually exclusive. Device, cache,
-revision and `local_files_only` are supported. `unload()` releases the wrapper's
-model reference; external references and allocator caches can retain memory.
+### 13.2 Multimodal input contract
 
-Embeddings are normalized by default. Dimensions range from 64 to 2048 (2B)
-or 4096 (8B). Truncation precedes normalization. For custom/local models,
-the actual backend dimension is checked on first inference; the config command
-can only validate the known preset/global bounds.
+The public retrieval contract accepts:
 
-Use `normalize_scores=True` for sigmoid scores in [0, 1]. These are **not
-calibrated probabilities**. Ties retain input order. Ranking returns
-`SearchResult(item, score, rank)` with the original candidate and one-based rank.
+```python
+{"text": "..."}
+```
 
-The strict retrieval contract accepts `{"text": ...}`, `{"image": ...}`, or
-both. Plain text strings remain shorthand; path-like strings must use an
-explicit key. Images must be existing local, decodable single-frame PNG, JPEG,
-WEBP, BMP or TIFF files. Local `file://` URIs become normal paths. Download
-remote images yourself first. Unknown fields, video, empty fields and invalid
-images are rejected before model loading.
+```python
+{"image": "path/to/image.png"}
+```
 
-### True multimodal RAG
+```python
+{
+    "text": "Find diagrams similar to this",
+    "image": "path/to/query.png",
+}
+```
+
+Plain text strings may be accepted as shorthand where documented.
+
+Local images are validated before expensive inference where practical. Unknown fields, empty inputs, missing files, directories passed as images, corrupt files, and unsupported inputs fail early with readable errors.
+
+### 13.3 Embeddings
+
+```python
+from vlm_engineering import QwenVLEmbedder
+
+embedder = QwenVLEmbedder(
+    model_size="2b",
+    dimensions=1024,
+)
+
+text_vector = embedder.embed_text(
+    "architecture diagram"
+)
+
+image_vector = embedder.embed_image(
+    "data/diagram_random_clean.png"
+)
+
+vectors = embedder.encode(
+    [
+        {"text": "Redis caching"},
+        {"image": "data/diagram_random_clean.png"},
+        {
+            "text": "Architecture",
+            "image": "data/diagram_random_clean.png",
+        },
+    ]
+)
+```
+
+Embeddings are normalized by default where configured by the wrapper.
+
+Supported Qwen embedding presets expose the dimensions supported by their model contract. Invalid dimensions are rejected before inference.
+
+### 13.4 Reranking
+
+```python
+from vlm_engineering import QwenVLReranker
+
+documents = [
+    {"text": "Redis provides caching."},
+    {"text": "PostgreSQL stores persistent state."},
+    {"image": "data/diagram_random_clean.png"},
+]
+
+reranker = QwenVLReranker(model_size="2b")
+
+scores = reranker.score(
+    "Find caching evidence",
+    documents,
+)
+
+ranked = reranker.rerank(
+    "Find caching evidence",
+    documents,
+    top_k=2,
+)
+```
+
+Ranking preserves the original candidate object in each result.
+
+Where normalized scoring is requested, the transformed score should be interpreted as a relevance score rather than a calibrated probability.
+
+### 13.5 Full multimodal RAG
 
 ```python
 from vlm_engineering import (
-    MultimodalRAGPipeline, QwenVLModel, QwenVLEmbedder, QwenVLReranker,
-    NativePageContent, VisualAnalysis, VisualChunkBuilder,
+    MultimodalRAGPipeline,
+    QwenVLEmbedder,
+    QwenVLModel,
+    QwenVLReranker,
 )
 
-chunk = VisualChunkBuilder().build(
-    NativePageContent("demo", 1, "architecture.pdf",
-                      image_ref="data/diagram_random_clean.png"),
-    VisualAnalysis("diagram", "Architecture", "Technical architecture diagram."),
-)
 pipeline = MultimodalRAGPipeline(
-    QwenVLEmbedder(), QwenVLModel(), QwenVLReranker(),
-    candidate_k=12, top_k=3, max_new_tokens=256,
+    embedder=QwenVLEmbedder(model_size="2b"),
+    reranker=QwenVLReranker(model_size="2b"),
+    generator=QwenVLModel(model_size="2b"),
+    candidate_k=12,
+    top_k=3,
+    max_new_tokens=256,
 )
-pipeline.index_chunks([chunk])
-answer = pipeline.answer("Which components are connected?")
+
+pipeline.index_chunks(chunks)
+
+answer = pipeline.answer(
+    "How does the cache interact with the rest of the architecture?"
+)
+
 print(answer.answer)
 ```
 
-The pipeline embeds each chunk's text **and original image**, retrieves
-`candidate_k`, optionally reranks, and generates using the selected `top_k`
-chunks. Every selected original image is attached, deduplicated and numbered in
-the evidence prompt. Document/page/source/metadata remain available in the
-returned chunks. A query image can be supplied with `answer(..., query_image=...)`
-or `retrieve({"text": ..., "image": ...})`.
+Important pipeline behavior:
 
-`candidate_k >= top_k > 0` is enforced. Re-indexing replaces the collection;
-empty re-indexing clears it. Failed indexing retains the previous complete
-index. The pipeline is synchronous and not designed for concurrent mutation.
-No matches return an empty-evidence answer. Retrieved text without any original
-image raises an explicit error for final visual generation. A query image alone
-does not count as source evidence.
+- `candidate_k >= top_k > 0`
+- re-indexing replaces previous in-memory state
+- empty re-indexing clears the previous collection
+- failed indexing does not intentionally leave a half-built index
+- original document/page/source metadata is preserved
+- original image references remain available for final grounding
+- retrieved evidence is reranked before generation
+- missing visual evidence is reported explicitly when the generation path requires it
 
-`QwenVLModel.generate_images()` accepts 1–16 images in order; RAG cannot exceed
-that limit (including a query image). Large images/multiple pages increase memory
-requirements sharply. `generate(image, prompt)` remains supported.
+### 13.6 Multimodal retrieval queries
 
-### CLI and local/offline workflow
+A query can include text and image evidence where supported:
 
-```bash
-vlm-lab embed --text "Find a cache diagram" --model-size 2b --dimensions 1024
-vlm-lab embed --image data/diagram_random_clean.png --model-size 2b
-# candidates.json is a JSON list of text strings or explicit text/image objects.
-vlm-lab rerank --query "Find the architecture" --documents-json candidates.json
-
-vlm-lab download-model --embedding-size 2b --output models/Qwen3-VL-Embedding-2B
-vlm-lab download-model --reranker-size 2b --output models/Qwen3-VL-Reranker-2B
-HF_HUB_OFFLINE=1 vlm-lab embed --text "architecture" \
-  --model-path models/Qwen3-VL-Embedding-2B
+```python
+results = pipeline.retrieve(
+    {
+        "text": "Find architecture similar to this diagram.",
+        "image": "data/query_diagram.png",
+    }
+)
 ```
 
-`model_path` forces `local_files_only=True`. Structural preflight checks the
-root-layout config, tokenizer, processor, safetensors and indexed shards. It
-cannot prove tensor integrity or completeness of arbitrary custom layouts;
-backend failures retain the underlying exception and give actionable advice.
-No weights ship in wheels/images; no shared Hugging Face cache is deleted.
+### 13.7 CLI
 
-### Runtime YAML
+Embedding text:
 
 ```bash
-vlm-lab validate-config configs/qwen_multimodal_rag.example.yaml
+vlm-lab embed \
+  --text "Find a cache diagram" \
+  --model-size 2b \
+  --dimensions 1024
 ```
 
-Validation uses `yaml.safe_load`, rejects unknown keys and invalid field types,
-and requires `version: 1`. It does not load models or require model directories
-to have been downloaded. Paths are relative to the **working directory**.
-The profile configures retrieval and RAG; the application supplies its generator:
+Embedding an image:
+
+```bash
+vlm-lab embed \
+  --image data/diagram_random_clean.png \
+  --model-size 2b
+```
+
+Reranking:
+
+```bash
+vlm-lab rerank \
+  --query "Find the architecture" \
+  --documents-json candidates.json \
+  --model-size 2b
+```
+
+### 13.8 Runtime YAML
+
+Example profile:
+
+```yaml
+version: 1
+
+embedding:
+  model:
+    model_size: 2b
+    revision: null
+    device: null
+    cache_folder: null
+    trust_remote_code: false
+
+  batch_size: 1
+  dimensions: 1024
+  normalize_embeddings: true
+
+reranker:
+  model:
+    model_size: 2b
+    revision: null
+    device: null
+    cache_folder: null
+    trust_remote_code: false
+
+  batch_size: 1
+  normalize_scores: true
+
+rag:
+  top_k: 3
+  candidate_k: 12
+  max_new_tokens: 256
+```
+
+Validate without loading model weights:
+
+```bash
+vlm-lab validate-config \
+  configs/qwen_multimodal_rag.example.yaml
+```
+
+The configuration layer:
+
+- uses safe YAML loading
+- has an explicit schema version
+- validates field types
+- rejects unknown keys
+- rejects conflicting model selectors
+- validates embedding dimensions where possible without model loading
+- rejects invalid `candidate_k` / `top_k` combinations
+
+Example Python usage:
 
 ```python
 from vlm_engineering import QwenVLModel
 from vlm_engineering.runtime_config import load_runtime_config
 
-config = load_runtime_config("configs/qwen_multimodal_rag.example.yaml")
-pipeline = config.build_pipeline(QwenVLModel())
+config = load_runtime_config(
+    "configs/qwen_multimodal_rag.example.yaml"
+)
+
+pipeline = config.build_pipeline(
+    QwenVLModel(model_size="2b")
+)
 ```
 
-### Validation status and roadmap
+### 13.9 Reliability and operational errors
 
-**IMPLEMENTED:** validated adapters, in-memory multimodal retrieval/reranking,
-original multi-image evidence generation, local/offline selection, runtime YAML,
-CLI, deterministic failure tests, and gated real-model tests.
+v0.3.0 strengthens user-facing validation around common operational failures, including:
 
-Real-model inference and hardware memory limits require separate GPU validation;
-passing fake-backend tests does not certify model quality. See
-[real-model commands and limitations](docs/testing.md) and
-[resource guidance](docs/multimodal-retrieval.md#resources).
+- missing optional dependencies
+- invalid multimodal input
+- missing/corrupt image files
+- invalid local model directories
+- incomplete local model snapshots where detectable
+- Hugging Face authentication/offline failures
+- resource / out-of-memory failures
+- disk-space failures
+- invalid embedding dimensions
+- unexpected embedding shapes
+- NaN / Inf embeddings
+- invalid reranker outputs
+- NaN / Inf reranker scores
+- malformed YAML profiles
 
-**ROADMAP:** persistent vector storage, evaluation/benchmarks, explicit resource
-profiles, video/temporal reasoning, async/streaming/serving, richer OCR and visual
-grounding. These are not implemented by this release.
+Expected operational problems are mapped to readable errors where possible. Unexpected programming errors should remain visible for debugging rather than being silently swallowed.
 
-### Migration from v0.2.1
+### 13.10 Resource safety
 
-`QwenMultimodalEmbedder` and `QwenMultimodalReranker` remain aliases in their old
-import locations. Positional model IDs and injected models remain supported.
-Embedding defaults now normalize outputs and use batch size 1; malformed model
-outputs raise errors. Change bare image strings to `{"image": path}`. Retrieval
-URLs/video/backend-specific objects are intentionally rejected. Injected backends
-must implement the documented Sentence Transformers keyword arguments and custom
-embedders must report their dimension. Single-image generation now validates local
-image bytes, so placeholder/corrupt files fail early.
+Qwen multimodal retrieval models are large.
+
+The retrieval wrappers use conservative batch defaults such as:
+
+```text
+batch_size = 1
+```
+
+Users with stronger hardware can tune batching after validating their memory envelope.
+
+For practical workloads:
+
+- GPU execution is recommended
+- CPU execution can be substantially slower
+- backend offloading may use CPU or disk depending on the model/backend
+- multiple images and high-resolution inputs increase memory requirements
+- local model storage requires several gigabytes depending on the selected model
+
+### 13.11 Real-model validation
+
+Large real-model tests are opt-in and excluded from normal PR CI.
+
+Run:
+
+```bash
+VLM_RUN_REAL_MODEL_TESTS=1 \
+python -m pytest \
+  -m real_model \
+  tests/e2e \
+  -v
+```
+
+Using explicit local/offline models:
+
+```bash
+export VLM_QWEN_EMBEDDING_MODEL_PATH=\
+models/Qwen3-VL-Embedding-2B
+
+export VLM_QWEN_RERANKER_MODEL_PATH=\
+models/Qwen3-VL-Reranker-2B
+
+export VLM_RUN_REAL_MODEL_TESTS=1
+
+python -m pytest \
+  -m real_model \
+  tests/e2e \
+  -v
+```
+
+Normal CI relies on deterministic fake/injected backends rather than downloading multi-gigabyte weights.
+
+### 13.12 Migration from v0.2.x
+
+Where retained by the package, earlier retrieval class names remain compatibility aliases.
+
+New code should prefer:
+
+```python
+from vlm_engineering import (
+    QwenVLEmbedder,
+    QwenVLReranker,
+    MultimodalRAGPipeline,
+)
+```
+
+For image inputs, prefer explicit multimodal objects:
+
+```python
+{"image": "path/to/image.png"}
+```
+
+rather than ambiguous bare path strings.
 
 ---
 
@@ -817,9 +1192,12 @@ from PIL import Image
 
 from vlm_engineering import CLIPEncoder
 
-image = Image.open("data/diagram_random_clean.png").convert("RGB")
+image = Image.open(
+    "data/diagram_random_clean.png"
+).convert("RGB")
 
 clip = CLIPEncoder()
+
 result = clip.zero_shot_classify(
     image,
     ["cat", "dog", "airplane"],
@@ -837,51 +1215,27 @@ CLIP is useful for learning the shared image/text embedding-space idea that mode
 Small API examples:
 
 ```text
-examples/clip_zero_shot.py                 CLIP zero-shot classification
-examples/qwen_describe_image.py            Qwen image description
-examples/qwen_model_selection.py           2B/4B/8B/custom model selection
-examples/qwen_local_model.py               explicit local/offline Qwen
-examples/structured_visual_chunk.py        RAG-ready visual chunk
-examples/text_only_visual_rag.py           VLM description + text embeddings
-examples/qwen_multimodal_retrieval.py      multimodal embedding/retrieval
+examples/clip_zero_shot.py
+examples/qwen_describe_image.py
+examples/qwen_model_selection.py
+examples/qwen_local_model.py
+examples/structured_visual_chunk.py
+examples/text_only_visual_rag.py
+examples/qwen_multimodal_retrieval.py
 ```
 
-End-to-end application cookbook:
+End-to-end scenarios:
 
 ```text
-scenarios/scenario_01_image_captioning.py              image captioning / description
-scenarios/scenario_02_visual_question_answering.py     grounded VQA
-scenarios/scenario_03_diagram_to_json.py               diagram -> structured JSON
-scenarios/scenario_04_document_page_to_rag_chunk.py    native/OCR + VLM -> RAG chunk
-scenarios/scenario_05_text_only_visual_rag.py          images -> VLM text -> text RAG
-scenarios/scenario_06_true_multimodal_retrieval.py     direct multimodal retrieval
-scenarios/scenario_07_compare_qwen_presets.py          compare Qwen 2B / 4B / 8B
-scenarios/scenario_08_hub_vs_local_loading.py          Hub/cache vs local/offline
-scenarios/scenario_09_batch_structured_analysis.py     batch image/page analysis
-```
-
-Each applicable scenario accepts the same model choices used by the package:
-
-```bash
-# Default 2B
-python scenarios/scenario_01_image_captioning.py data/diagram_random_clean.png
-
-# 4B / 8B
-python scenarios/scenario_01_image_captioning.py \
-  data/diagram_random_clean.png --model-size 4b
-
-python scenarios/scenario_01_image_captioning.py \
-  data/diagram_random_clean.png --model-size 8b
-
-# Explicit Hugging Face model
-python scenarios/scenario_01_image_captioning.py \
-  data/diagram_random_clean.png \
-  --model-id Qwen/Qwen3-VL-4B-Instruct
-
-# Explicit local model
-python scenarios/scenario_01_image_captioning.py \
-  data/diagram_random_clean.png \
-  --model-path models/Qwen3-VL-4B-Instruct
+scenarios/scenario_01_image_captioning.py
+scenarios/scenario_02_visual_question_answering.py
+scenarios/scenario_03_diagram_to_json.py
+scenarios/scenario_04_document_page_to_rag_chunk.py
+scenarios/scenario_05_text_only_visual_rag.py
+scenarios/scenario_06_true_multimodal_retrieval.py
+scenarios/scenario_07_compare_qwen_presets.py
+scenarios/scenario_08_hub_vs_local_loading.py
+scenarios/scenario_09_batch_structured_analysis.py
 ```
 
 See [`scenarios/README.md`](scenarios/README.md) for copy/paste commands, model guidance, RAG patterns, batch processing, and offline usage.
@@ -890,146 +1244,95 @@ See [`scenarios/README.md`](scenarios/README.md) for copy/paste commands, model 
 
 ## 16. Notebooks
 
-Notebooks are **analysis clients**, not the implementation layer:
+Notebooks are analysis clients, not the implementation layer:
 
-- `00_clip_foundations.ipynb`
-- `01_qwen3_vl_quickstart.ipynb`
-- `02_visual_document_understanding.ipynb`
-- `03_multimodal_rag.ipynb`
+```text
+00_clip_foundations.ipynb
+01_qwen3_vl_quickstart.ipynb
+02_visual_document_understanding.ipynb
+03_multimodal_rag.ipynb
+```
 
-All reusable logic lives under `src/vlm_engineering` and can be used without Jupyter.
+Reusable logic belongs under `src/vlm_engineering/` and can be used without Jupyter.
 
 ---
 
 ## 17. Docker and Docker Compose
 
-The repository includes both a `Dockerfile` and `docker-compose.yml` so users can run the CLI inside a reproducible container instead of managing the Python environment directly on the host.
+The repository includes `Dockerfile` and `docker-compose.yml` for reproducible CLI/container workflows.
 
-The current container is a runtime-oriented image. It installs the package with the Qwen and retrieval dependencies and does not include contributor/test/notebook tooling by default.
+The normal image does not bake model weights into the container.
 
-### Prerequisites
-
-Install one of:
-
-- Docker Desktop, or
-- Docker Engine with Docker Compose v2
-
-Verify:
-
-```bash
-docker --version
-docker compose version
-```
-
-### Build with Docker Compose
-
-From the repository root:
+### Build
 
 ```bash
 docker compose build
 ```
 
-The image is built from the repository `Dockerfile`, which currently uses Python 3.12 as the reference container runtime. The package itself targets Python 3.11-3.13 in v0.3.0.
-
-### Check the CLI inside the container
+### CLI
 
 ```bash
 docker compose run --rm vlm-lab --help
-```
-
-List the available Qwen presets:
-
-```bash
 docker compose run --rm vlm-lab models
 ```
 
-### Understand the mounted directories
-
-The Compose configuration mounts:
+### Mounted directories
 
 ```text
 Host                       Container
-./data                     /app/data                 read-only
-./models                   /app/models               persistent bind mount
+./data                     /app/data
+./models                   /app/models
 hf-cache named volume      /home/appuser/.cache/huggingface
 ```
 
-This means:
+Explicit model directories under `./models` therefore survive one-shot container removal.
 
-- put user images/pages under `./data/`
-- explicitly downloaded models under `./models/` survive container removal
-- Hugging Face cache downloads survive normal `docker compose run --rm` commands
-- the container does not need to copy your private data into the image
-
-### Describe an image with the default 2B model
-
-Place an image at `data/diagram_random_clean.png`, then run:
-
-```bash
-docker compose run --rm vlm-lab \
-  describe data/diagram_random_clean.png
-```
-
-With a custom prompt:
+### Generative inference
 
 ```bash
 docker compose run --rm vlm-lab \
   describe data/diagram_random_clean.png \
-  --prompt "Describe this image precisely."
+  --model-size 2b
 ```
 
-### Select 4B or 8B inside the container
-
-```bash
-docker compose run --rm vlm-lab \
-  describe data/diagram_random_clean.png \
-  --model-size 4b
-```
-
-```bash
-docker compose run --rm vlm-lab \
-  analyze data/architecture.png \
-  --model-size 8b
-```
-
-### Persist a model explicitly under `./models`
-
-Download the 4B preset from inside the container:
+### Download a local model
 
 ```bash
 docker compose run --rm vlm-lab \
   download-model \
-  --model-size 4b \
-  --output models/Qwen3-VL-4B-Instruct
+  --model-size 2b \
+  --output models/Qwen3-VL-2B-Instruct
 ```
 
-Because `/app/models` is bind-mounted to host `./models`, the downloaded files remain available after the container exits.
-
-Then use the local model explicitly:
-
-```bash
-docker compose run --rm vlm-lab \
-  describe data/diagram_random_clean.png \
-  --model-path models/Qwen3-VL-4B-Instruct
-```
-
-### Fully offline container inference
-
-First download the model while network access is available. Then run:
+### Offline inference
 
 ```bash
 docker compose run --rm \
   -e HF_HUB_OFFLINE=1 \
   vlm-lab \
   describe data/diagram_random_clean.png \
-  --model-path models/Qwen3-VL-4B-Instruct
+  --model-path models/Qwen3-VL-2B-Instruct
 ```
 
-`--model-path` enables local-only model loading in the package.
+### Retrieval model downloads
 
-### Hugging Face authentication without baking secrets into the image
+```bash
+docker compose run --rm vlm-lab \
+  download-model \
+  --embedding-size 2b \
+  --output models/Qwen3-VL-Embedding-2B
+```
 
-For a private or gated compatible repository, keep the token on the host and pass it at runtime rather than storing it in the Dockerfile:
+```bash
+docker compose run --rm vlm-lab \
+  download-model \
+  --reranker-size 2b \
+  --output models/Qwen3-VL-Reranker-2B
+```
+
+### Hugging Face authentication
+
+Pass credentials at runtime rather than baking them into the image:
 
 ```bash
 export HF_TOKEN="..."
@@ -1041,11 +1344,9 @@ docker compose run --rm \
   --model-id your-org/your-compatible-model
 ```
 
-Do not commit Hugging Face tokens or other credentials to the repository.
+Do not commit tokens.
 
-### Open a shell for debugging
-
-The image entrypoint is `vlm-lab`. To open a shell instead:
+### Shell debugging
 
 ```bash
 docker compose run --rm \
@@ -1053,90 +1354,25 @@ docker compose run --rm \
   vlm-lab
 ```
 
-Inside the container you can inspect:
-
-```bash
-python --version
-python -m pip list
-ls -la /app/data
-ls -la /app/models
-```
-
-### Build and run without Compose
-
-Build:
+### Direct Docker usage
 
 ```bash
 docker build \
-  -t vision-language-engineering-lab:0.2.1 \
+  -t vision-language-engineering-lab:0.3.0 \
   .
 ```
 
-List models:
-
 ```bash
 docker run --rm \
-  vision-language-engineering-lab:0.2.1 \
+  vision-language-engineering-lab:0.3.0 \
   models
 ```
 
-Run against host data and persistent models:
-
-```bash
-docker run --rm \
-  -v "$PWD/data:/app/data:ro" \
-  -v "$PWD/models:/app/models" \
-  -v vlm-hf-cache:/home/appuser/.cache/huggingface \
-  vision-language-engineering-lab:0.2.1 \
-  describe data/diagram_random_clean.png \
-  --model-size 2b
-```
-
-### Rebuild after package/dependency changes
-
-```bash
-docker compose build
-```
-
-If you specifically need a clean image rebuild:
-
-```bash
-docker compose build --no-cache
-```
-
-### Remove containers while keeping explicit local models
-
-```bash
-docker compose down
-```
-
-The host `./models` directory remains because it is a bind mount.
-
-To also delete the named Hugging Face cache volume:
-
-```bash
-docker compose down -v
-```
-
-Use `-v` carefully because cached model downloads in the named volume will be removed.
-
 ### GPU execution
 
-The checked-in Compose file is intentionally a portable baseline and does not force a GPU runtime configuration.
+The checked-in Docker setup is a portable baseline and does not force a particular GPU runtime.
 
-For NVIDIA GPU inference, configure a compatible host Docker/NVIDIA runtime and verify GPU visibility from the container before relying on it for Qwen workloads. GPU setup is host-specific; the project does not assume every user has NVIDIA hardware.
-
-Qwen3-VL 4B and especially 8B require substantially more memory than the default 2B model. Start with 2B when validating a container deployment.
-
-### Why `docker compose run` instead of `docker compose up`?
-
-`vlm-lab` is a command-line workload, not a long-running web server. The Compose service defaults to `--help`, so most users should execute individual tasks with:
-
-```bash
-docker compose run --rm vlm-lab <command> ...
-```
-
-This creates an isolated one-shot container, runs the command, and removes the container afterward while preserving the mounted data/model/cache volumes.
+Configure the appropriate container GPU runtime on the host and verify GPU visibility before relying on Qwen workloads.
 
 ---
 
@@ -1148,8 +1384,11 @@ Before pushing changes:
 python -m pip check
 python -m ruff check .
 python -m mypy .
-python -m pytest --cov=vlm_engineering --cov-report=term-missing
-python -m pip_audit
+python -m pytest \
+  -m "not real_model" \
+  --cov=vlm_engineering \
+  --cov-report=term-missing
+python -m pip_audit .
 ```
 
 The project uses:
@@ -1163,9 +1402,19 @@ The project uses:
 | `pip check` | installed dependency consistency |
 | `pip-audit` | known dependency-vulnerability auditing |
 
-CI additionally executes the package against Python 3.11, 3.12, and 3.13.
+For the v0.3.0 release branch, deterministic validation reached:
 
-Heavy ML components are mocked or injected in normal unit tests, so CI does not need to download multi-gigabyte Qwen model weights merely to validate package contracts.
+```text
+340 passed
+2 deselected
+94.82% coverage
+pip check: no broken requirements
+pip-audit: no known vulnerabilities
+```
+
+The deselected tests are resource-heavy / opt-in real-model validations rather than normal CI tests.
+
+CI validates Python 3.11, 3.12, and 3.13 while avoiding automatic multi-gigabyte model downloads in ordinary pull requests.
 
 ---
 
@@ -1173,7 +1422,7 @@ Heavy ML components are mocked or injected in normal unit tests, so CI does not 
 
 ### `ModuleNotFoundError`
 
-Activate the environment and install the required extra:
+Activate the environment and install the appropriate extra:
 
 ```bash
 source .venv/bin/activate
@@ -1181,8 +1430,6 @@ python -m pip install -e ".[all]"
 ```
 
 ### `vlm-lab: command not found`
-
-Confirm the package is installed in the active environment:
 
 ```bash
 python -m pip show vision-language-engineering-lab
@@ -1195,56 +1442,111 @@ Then reinstall:
 python -m pip install -e ".[all]"
 ```
 
-### CUDA / out-of-memory error
+### Missing Qwen retrieval dependencies
 
-Start with the default `2b` preset, reduce image resolution/output length, or use stronger hardware. Moving from 2B to 4B to 8B increases model capacity and memory pressure.
+```bash
+python -m pip install -e ".[qwen-retrieval]"
+```
+
+### Missing `torchvision`
+
+Install the relevant package extra rather than adding ad-hoc dependencies individually:
+
+```bash
+python -m pip install -e ".[qwen]"
+```
+
+or:
+
+```bash
+python -m pip install -e ".[qwen-retrieval]"
+```
+
+### CUDA / RAM / out-of-memory error
+
+Start with 2B models and batch size 1.
+
+Reduce:
+
+- batch size
+- image resolution
+- number of simultaneous images
+- output token length
+
+or move to hardware with more RAM/VRAM.
+
+### Model offloading is slow
+
+Automatic device placement can offload weights to CPU or disk on constrained machines. This is expected to be slower than running fully on an adequately sized GPU.
 
 ### First run is slow
 
-Hub/cache mode may be downloading model files. For a predictable deployment directory, use `vlm-lab download-model --model-size 2b`, then run with `--model-path models/Qwen3-VL-2B-Instruct`.
+The Hub may be downloading model weights.
+
+For predictable storage:
+
+```bash
+vlm-lab download-model \
+  --model-size 2b
+```
+
+Then use `--model-path`.
 
 ### Fully offline inference
 
-Download the model first, then use `--model-path` / `QwenVLModel.from_local()`. Optionally set:
+Download the model first, then use a local model path and optionally:
 
 ```bash
 export HF_HUB_OFFLINE=1
 ```
 
-### Model requires repository-provided Python code
+### Invalid/corrupt image
 
-Do not enable `--trust-remote-code` automatically. Verify the model repository and only opt in when genuinely required.
+Local image validation intentionally fails early when possible.
 
-### Sentence Transformers / dependency compatibility
+Verify:
 
-Check the resolved environment:
+```bash
+file path/to/image.png
+```
+
+and re-export the source image if necessary.
+
+### Hugging Face authentication
+
+For gated/private models, set:
+
+```bash
+export HF_TOKEN="..."
+```
+
+Do not commit credentials.
+
+### Invalid YAML configuration
+
+Validate before starting models:
+
+```bash
+vlm-lab validate-config \
+  configs/qwen_multimodal_rag.example.yaml
+```
+
+### Dependency compatibility
 
 ```bash
 python -m pip check
-python -m pip show sentence-transformers torch transformers
+python -m pip show \
+  sentence-transformers \
+  torch \
+  torchvision \
+  transformers
 ```
-
-v0.3.0 allows Sentence Transformers 5.4 through 6.x. Multimodal retrieval additionally requires Transformers v5. Use the manual runtime compatibility workflow to validate optional ML imports on Python 3.11–3.13.
 
 ### Which Qwen model should I choose?
 
-- Start with **2B** while developing the pipeline.
-- Compare **4B** when reasoning/extraction quality is insufficient.
-- Test **8B** when the quality gain justifies the higher resource cost.
-- Evaluate on your own diagrams/documents; model size alone does not guarantee better RAG accuracy.
+Start with the 2B preset while validating the pipeline.
 
-### Docker cannot see my file
-
-Confirm the file is under the host `data/` directory because Compose mounts that directory into `/app/data`:
-
-```bash
-ls -la data/
-docker compose run --rm --entrypoint /bin/sh vlm-lab -c "ls -la /app/data"
-```
-
-### Docker keeps downloading models
-
-For production-like Docker tests, prefer downloading the model explicitly into `./models` and using `--model-path`. The named Hugging Face cache volume remains useful for ad-hoc Hub-backed experiments.
+Move to larger models only when evaluation data demonstrates that the quality gain justifies the additional hardware cost.
 
 ---
 
@@ -1252,34 +1554,33 @@ For production-like Docker tests, prefer downloading the model explicitly into `
 
 **Contributions are welcome.**
 
-The project is intended to grow as an open Vision-Language engineering lab, and contributions from developers, AI/ML engineers, researchers, students, and practitioners are encouraged.
+The project is intended to grow as an open Vision-Language engineering lab.
 
-Useful contributions include:
+Useful contribution areas include:
 
-- new VLM integrations
-- additional Qwen-compatible model support
+- VLM integrations
 - multimodal retrieval strategies
 - document-understanding pipelines
-- RAG evaluation methods
+- RAG evaluation
+- persistent vector-database adapters
 - performance and memory improvements
-- additional deterministic tests
-- Python-version compatibility improvements
+- deterministic and real-model testing
 - Docker/deployment improvements
-- documentation and tutorials
-- reproducible application scenarios
+- documentation
+- application scenarios
 - bug fixes
 
 ### Contribution workflow
 
-1. Fork the repository.
+1. Fork or clone the repository.
 2. Create a focused branch.
 3. Implement the change.
-4. Add or update tests.
-5. Run the quality gates locally.
+4. Add/update tests.
+5. Run quality gates.
 6. Push the branch.
-7. Open a Pull Request describing the motivation, implementation, validation, and any compatibility considerations.
+7. Open a Pull Request.
 
-Example development setup:
+Example:
 
 ```bash
 git clone https://github.com/helmighanmi/vision-language-engineering-lab.git
@@ -1287,6 +1588,7 @@ cd vision-language-engineering-lab
 
 python -m venv .venv
 source .venv/bin/activate
+
 python -m pip install --upgrade pip
 python -m pip install -e ".[all,dev]"
 ```
@@ -1297,11 +1599,14 @@ Validation:
 python -m pip check
 python -m ruff check .
 python -m mypy .
-python -m pytest --cov=vlm_engineering --cov-report=term-missing
-python -m pip_audit
+python -m pytest \
+  -m "not real_model" \
+  --cov=vlm_engineering \
+  --cov-report=term-missing
+python -m pip_audit .
 ```
 
-Please read [`CONTRIBUTING.md`](CONTRIBUTING.md) for the complete contribution workflow.
+See [`CONTRIBUTING.md`](CONTRIBUTING.md) for the complete contribution workflow.
 
 Questions, feature proposals, documentation improvements, and bug reports are welcome through GitHub Issues.
 
@@ -1310,14 +1615,15 @@ Questions, feature proposals, documentation improvements, and bug reports are we
 ## 21. Documentation
 
 - `docs/model-loading.md` — model presets, Hub/custom/local modes and troubleshooting
-- `docs/qwen-model-selection.md` — model-size selection and memory guidance
+- `docs/qwen-model-selection.md` — model-size selection and resource guidance
 - `docs/rag-patterns.md` — visual and multimodal RAG patterns
+- `docs/multimodal-retrieval.md` — Qwen embedding/reranking design and resource guidance
 - `docs/architecture.md` — package architecture
-- `docs/testing.md` — testing strategy
+- `docs/testing.md` — deterministic and real-model testing
 - `docs/pdf/Vision_Language_Engineering_EN.pdf` — English teaching course
 - `docs/pdf/Ingenierie_Vision_Langage_FR.pdf` — French teaching course
 
-The PDFs are conceptual teaching references. The README and Markdown docs are the operational source of truth for the current package CLI/API.
+The README and Markdown documentation are the operational source of truth for the current package API/CLI.
 
 ---
 
@@ -1326,19 +1632,23 @@ The PDFs are conceptual teaching references. The README and Markdown docs are th
 ```text
 vision-language-engineering-lab/
 ├── .github/                 CI, security, and publishing workflows
-├── data/                    user-provided images/pages (gitignored except docs)
-├── docs/                    architecture, model-loading, RAG, testing guidance
+├── configs/                 validated runtime YAML profiles
+├── data/                    smoke-test/user images
+├── docs/                    architecture, retrieval, RAG, testing guidance
 ├── examples/                small runnable API examples
 ├── models/                  explicit local model downloads (gitignored)
 ├── notebooks/               analysis/demonstration clients
 ├── scenarios/               end-to-end application cookbook
 ├── src/
 │   └── vlm_engineering/     production Python package
-├── tests/                   deterministic unit/integration/contract tests
-├── Dockerfile               container image definition
-├── docker-compose.yml       reproducible CLI/container workflow
-├── pyproject.toml           package metadata and dependency source of truth
-├── requirements.txt         compatibility installer
+├── tests/
+│   ├── contract/            metadata/dependency/public-contract tests
+│   ├── e2e/                 opt-in real-model tests
+│   └── unit/                deterministic package tests
+├── Dockerfile
+├── docker-compose.yml
+├── pyproject.toml
+├── requirements.txt
 ├── README.md
 ├── CHANGELOG.md
 ├── CONTRIBUTING.md
@@ -1348,6 +1658,50 @@ vision-language-engineering-lab/
 
 ---
 
+## 23. Implemented vs roadmap
+
+### Implemented
+
+- CLIP foundations
+- Qwen3-VL 2B / 4B / 8B generation
+- image description and visual question answering
+- structured visual/document analysis
+- traceable visual chunks
+- text-only visual RAG
+- Qwen3-VL multimodal embeddings
+- Qwen3-VL multimodal reranking
+- two-stage multimodal retrieval
+- multimodal RAG with original visual evidence
+- project-local model downloads
+- local/offline execution
+- runtime YAML validation
+- CLI workflows
+- Docker workflows
+- Python 3.11–3.13 CI
+- deterministic tests and opt-in real-model tests
+
+### Roadmap
+
+Potential future directions include:
+
+- persistent vector database adapters
+- retrieval/RAG evaluation and benchmarks
+- multi-image and richer multimodal sessions
+- video / temporal reasoning
+- richer document parsing and OCR workflows
+- visual grounding / bounding boxes
+- quantized / low-resource deployment
+- async and streaming interfaces
+- serving/API layer
+- observability and caching
+- visual-agent perception workflows
+
+Roadmap items are not part of the current public API until implemented and validated.
+
+---
+
 ## License and third-party material
 
-Project code is distributed under Apache-2.0. Model weights are downloaded separately and retain their respective licenses. Users are responsible for reviewing the license terms of any third-party models, datasets, or external assets they use with this package.
+Project code is distributed under Apache-2.0.
+
+Model weights are downloaded separately and retain their respective licenses. Users are responsible for reviewing the license terms of third-party models, datasets, and external assets used with this package.
