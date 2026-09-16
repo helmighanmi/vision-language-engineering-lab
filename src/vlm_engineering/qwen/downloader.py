@@ -11,7 +11,8 @@ from __future__ import annotations
 from pathlib import Path
 
 from ..config import DEFAULT_QWEN_MODEL
-from ..exceptions import OptionalDependencyError
+from ..exceptions import InputValidationError, OptionalDependencyError
+from ..operational import backend_errors
 
 
 def download_model_snapshot(
@@ -33,15 +34,15 @@ def download_model_snapshot(
     """
     normalized_model_id = model_id.strip()
     if not normalized_model_id:
-        raise ValueError("model_id must not be empty.")
+        raise InputValidationError("model_id must not be empty.")
 
     if isinstance(output_dir, str) and not output_dir.strip():
-        raise ValueError("output_dir must not be empty.")
+        raise InputValidationError("output_dir must not be empty.")
 
     destination = Path(output_dir).expanduser().resolve()
 
     if destination.exists() and not destination.is_dir():
-        raise ValueError(f"Model output path is not a directory: {destination}")
+        raise InputValidationError(f"Model output path is not a directory: {destination}")
 
     destination.mkdir(parents=True, exist_ok=True)
 
@@ -52,10 +53,11 @@ def download_model_snapshot(
             'Install Qwen dependencies with: pip install "vision-language-engineering-lab[qwen]"'
         ) from exc
 
-    snapshot_download(
-        repo_id=normalized_model_id,
-        local_dir=destination,
-        revision=revision,
-    )
+    with backend_errors(loading=True):
+        snapshot_download(
+            repo_id=normalized_model_id,
+            local_dir=destination,
+            revision=revision,
+        )
 
     return destination

@@ -6,13 +6,14 @@
 
 """Multimodal retrieval with Qwen3-VL-Embedding-2B through SentenceTransformers."""
 
+from vlm_engineering.inputs import MultimodalInput
 from vlm_engineering.retrieval import QwenMultimodalEmbedder
 
 embedder = QwenMultimodalEmbedder()
 queries = ["Find the architecture diagram that shows a cache and a database."]
-documents = [
+documents: list[MultimodalInput] = [
     "A plain text architecture note.",
-    "data/architecture_diagram.png",
+    {"image": "data/architecture_diagram.png"},
     {"text": "Payment architecture", "image": "data/architecture_diagram.png"},
 ]
 query_vectors = embedder.encode(queries, prompt="Retrieve relevant technical document evidence.")

@@ -52,36 +52,13 @@ jobs:
         run: |
           python -m pip install --upgrade pip setuptools wheel
 
-      - name: Install package with all runtime and development dependencies
+      - name: Install lightweight deterministic test dependencies
         run: |
-          python -m pip install -e ".[all,dev]"
+          python -m pip install -e ".[dev,config]"
 
       - name: Check dependency consistency
         run: |
           python -m pip check
-
-      - name: Show resolved AI dependency versions
-        run: |
-          python - <<'PY'
-          import sys
-
-          import accelerate
-          import huggingface_hub
-          import numpy
-          import sentence_transformers
-          import torch
-          import torchvision
-          import transformers
-
-          print("Python:", sys.version)
-          print("NumPy:", numpy.__version__)
-          print("PyTorch:", torch.__version__)
-          print("Torchvision:", torchvision.__version__)
-          print("Transformers:", transformers.__version__)
-          print("Sentence Transformers:", sentence_transformers.__version__)
-          print("Accelerate:", accelerate.__version__)
-          print("Hugging Face Hub:", huggingface_hub.__version__)
-          PY
 
       - name: Smoke test public package imports
         run: |
@@ -89,10 +66,14 @@ jobs:
           from vlm_engineering import (
               CLIPEncoder,
               QwenVLModel,
+              QwenVLEmbedder,
+              QwenVLReranker,
+              MultimodalRAGPipeline,
               VisualRAGPipeline,
           )
           from vlm_engineering.retrieval import TextEmbedder
 
+          print(QwenVLEmbedder.__name__, QwenVLReranker.__name__, MultimodalRAGPipeline.__name__)
           print("CLIPEncoder:", CLIPEncoder.__name__)
           print("QwenVLModel:", QwenVLModel.__name__)
           print("VisualRAGPipeline:", VisualRAGPipeline.__name__)
@@ -111,6 +92,7 @@ jobs:
       - name: Tests with coverage
         run: |
           python -m pytest \
+            -m "not real_model" \
             --cov=vlm_engineering \
             --cov-report=term-missing
 

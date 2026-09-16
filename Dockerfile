@@ -28,7 +28,7 @@ COPY pyproject.toml README.md LICENSE ./
 COPY src ./src
 
 RUN python -m pip install --upgrade pip setuptools wheel \
-    && python -m pip install ".[qwen,retrieval]"
+    && python -m pip install ".[qwen,qwen-retrieval,config]"
 
 RUN mkdir -p \
     /app/data \

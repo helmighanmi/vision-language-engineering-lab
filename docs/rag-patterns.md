@@ -18,7 +18,7 @@ Keep deterministic/native extraction for exact strings, IDs and numbers. Use the
 
 ## Pattern C - true multimodal retrieval
 
-Use Qwen3-VL-Embedding-2B to embed text, images, screenshots, videos, or mixed inputs in one space. Retrieve broadly, then use Qwen3-VL-Reranker-2B to score query-document relevance more precisely.
+Use QwenVLEmbedder to embed text, local images or text+image inputs. MultimodalRAGPipeline retrieves candidate_k, optionally scores candidates with QwenVLReranker, selects top_k, and attaches all selected original images to generation. Video is roadmap-only. See [implemented API and migration](../README.md#13-multimodal-retrieval-and-rag--implemented-in-v030).
 
 ## OCR guidance
 

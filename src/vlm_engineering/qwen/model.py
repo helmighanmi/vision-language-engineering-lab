@@ -9,10 +9,12 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import Any, Sequence
 from urllib.parse import unquote, urlparse
 
-from ..exceptions import ModelLoadError, OptionalDependencyError
+from ..exceptions import InputValidationError, ModelLoadError, OptionalDependencyError
+from ..inputs import validate_image
+from ..operational import backend_errors
 from .registry import resolve_qwen_model_id
 
 
@@ -36,14 +38,14 @@ def _normalize_image_source(image: str | Path) -> str:
             raise FileNotFoundError(path)
 
         if not path.is_file():
-            raise ValueError(f"Image path is not a file: {path}")
+            raise InputValidationError(f"Image path is not a file: {path}")
 
         return str(path)
 
     value = image.strip()
 
     if not value:
-        raise ValueError("image must not be empty.")
+        raise InputValidationError("image must not be empty.")
 
     if value.startswith(("http://", "https://")):
         return value
@@ -56,7 +58,7 @@ def _normalize_image_source(image: str | Path) -> str:
             raise FileNotFoundError(path)
 
         if not path.is_file():
-            raise ValueError(f"Image path is not a file: {path}")
+            raise InputValidationError(f"Image path is not a file: {path}")
 
         return str(path)
 
@@ -67,7 +69,7 @@ def _normalize_image_source(image: str | Path) -> str:
             path = candidate.resolve()
 
             if not path.is_file():
-                raise ValueError(f"Image path is not a file: {path}")
+                raise InputValidationError(f"Image path is not a file: {path}")
 
             return str(path)
     except OSError:
@@ -103,7 +105,7 @@ class QwenVLModel:
         processor: Any | None = None,
     ) -> None:
         if model_source is not None and model_size is not None:
-            raise ValueError("Provide either model_source or model_size, not both.")
+            raise InputValidationError("Provide either model_source or model_size, not both.")
 
         if model_source is None:
             resolved_source = resolve_qwen_model_id(model_size=model_size)
@@ -111,7 +113,7 @@ class QwenVLModel:
             resolved_source = str(model_source)
 
             if not resolved_source.strip():
-                raise ValueError("model_source must not be empty.")
+                raise InputValidationError("model_source must not be empty.")
 
         self.model_source = resolved_source
         self.local_files_only = local_files_only
@@ -160,7 +162,7 @@ class QwenVLModel:
             raise FileNotFoundError(path)
 
         if not path.is_dir():
-            raise ValueError(f"Model path is not a directory: {path}")
+            raise InputValidationError(f"Model path is not a directory: {path}")
 
         return cls(
             str(path),
@@ -174,7 +176,7 @@ class QwenVLModel:
             return self._model, self._processor
 
         try:
-            from transformers import AutoModelForMultimodalLM, AutoProcessor
+            from transformers import AutoModelForImageTextToText, AutoProcessor
         except ImportError as exc:
             raise OptionalDependencyError(
                 'Install Qwen dependencies with: pip install "vision-language-engineering-lab[qwen]"'
@@ -185,28 +187,21 @@ class QwenVLModel:
             "trust_remote_code": self.trust_remote_code,
         }
 
-        try:
+        with backend_errors(loading=True):
             self._processor = AutoProcessor.from_pretrained(
                 self.model_source,
                 **common,
             )
 
-            self._model = AutoModelForMultimodalLM.from_pretrained(
+            self._model = AutoModelForImageTextToText.from_pretrained(
                 self.model_source,
                 device_map=self.device_map,
                 dtype=self.dtype,
                 **common,
             )
 
-        except Exception as exc:  # pragma: no cover - backend/hardware specific
-            raise ModelLoadError(
-                f"Unable to load model from {self.model_source!r}: {exc}"
-            ) from exc
-
         if self._model is None or self._processor is None:
-            raise ModelLoadError(
-                f"Unable to load model from {self.model_source!r}."
-            )
+            raise ModelLoadError(f"Unable to load model from {self.model_source!r}.")
 
         return self._model, self._processor
 
@@ -218,64 +213,58 @@ class QwenVLModel:
         system_prompt: str | None = None,
         max_new_tokens: int = 512,
     ) -> str:
-        """Generate a text response grounded in one image."""
-        if not prompt.strip():
-            raise ValueError("prompt must not be empty.")
+        """Generate a text response grounded in one image (legacy API)."""
+        return self.generate_images(
+            [image], prompt, system_prompt=system_prompt, max_new_tokens=max_new_tokens
+        )
 
-        if max_new_tokens <= 0:
-            raise ValueError("max_new_tokens must be greater than zero.")
-
-        image_source = _normalize_image_source(image)
-
+    def generate_images(
+        self,
+        images: Sequence[str | Path],
+        prompt: str,
+        *,
+        system_prompt: str | None = None,
+        max_new_tokens: int = 512,
+    ) -> str:
+        """Generate from 1-16 images in attachment order, validated before model load."""
+        if not isinstance(prompt, str) or not prompt.strip():
+            raise InputValidationError("prompt must not be empty.")
+        if type(max_new_tokens) is not int or max_new_tokens <= 0:
+            raise InputValidationError("max_new_tokens must be greater than zero.")
+        if isinstance(images, (str, bytes)) or not isinstance(images, Sequence) or not 1 <= len(images) <= 16:
+            raise InputValidationError("images must contain between 1 and 16 image references.")
+        sources = []
+        for image in images:
+            # Preserve the established generator HTTP URL API. Retrieval inputs
+            # are local-only; remote decoding remains the generator backend's job.
+            source = _normalize_image_source(image)
+            if not source.startswith(("http://", "https://")):
+                source = validate_image(source)
+            sources.append(source)
         model, processor = self._ensure_loaded()
-
         messages: list[dict[str, Any]] = []
-
         if system_prompt:
-            messages.append(
-                {
-                    "role": "system",
-                    "content": [
-                        {
-                            "type": "text",
-                            "text": system_prompt,
-                        }
-                    ],
-                }
-            )
-
+            messages.append({"role": "system", "content": [{"type": "text", "text": system_prompt}]})
         messages.append(
             {
                 "role": "user",
                 "content": [
-                    {
-                        "type": "image",
-                        "url": image_source,
-                    },
-                    {
-                        "type": "text",
-                        "text": prompt,
-                    },
+                    *({"type": "image", "url": source} for source in sources),
+                    {"type": "text", "text": prompt},
                 ],
             }
         )
+        with backend_errors():
+            import torch
 
-        inputs = processor.apply_chat_template(
-            messages,
-            add_generation_prompt=True,
-            tokenize=True,
-            return_dict=True,
-            return_tensors="pt",
-        ).to(model.device)
-
-        outputs = model.generate(
-            **inputs,
-            max_new_tokens=max_new_tokens,
-        )
-
-        generated = outputs[0][inputs["input_ids"].shape[-1] :]
-
-        return processor.decode(
-            generated,
-            skip_special_tokens=True,
-        ).strip()
+            with torch.inference_mode():
+                inputs = processor.apply_chat_template(
+                    messages,
+                    add_generation_prompt=True,
+                    tokenize=True,
+                    return_dict=True,
+                    return_tensors="pt",
+                ).to(model.device)
+                outputs = model.generate(**inputs, max_new_tokens=max_new_tokens)
+                generated = outputs[0][inputs["input_ids"].shape[-1] :]
+                return processor.decode(generated, skip_special_tokens=True).strip()

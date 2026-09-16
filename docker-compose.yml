@@ -21,6 +21,7 @@ services:
     volumes:
       - ./models:/app/models
       - ./data:/app/data:ro
+      - ./configs:/app/configs:ro
       - hf-cache:/home/appuser/.cache/huggingface
 
     command:

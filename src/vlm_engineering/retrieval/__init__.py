@@ -7,12 +7,16 @@
 """Text and multimodal retrieval components."""
 
 from .in_memory import InMemoryVectorIndex, SearchResult
-from .multimodal_embedding import QwenMultimodalEmbedder
+from .multimodal_embedding import QwenMultimodalEmbedder, QwenVLEmbedder
+from .multimodal_rag import MultimodalRAGPipeline
 from .rag import RAGAnswer, VisualRAGPipeline
-from .reranker import QwenMultimodalReranker
+from .reranker import QwenMultimodalReranker, QwenVLReranker
 from .text_embedding import TextEmbedder
 
 __all__ = [
+    "QwenVLEmbedder",
+    "QwenVLReranker",
+    "MultimodalRAGPipeline",
     "InMemoryVectorIndex",
     "QwenMultimodalEmbedder",
     "QwenMultimodalReranker",

@@ -14,7 +14,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "vision-language-engineering-lab"
-version = "0.2.1"
+version = "0.3.0"
 description = "Production-oriented Vision-Language engineering with CLIP, Qwen3-VL, visual document understanding and multimodal RAG."
 readme = "README.md"
 requires-python = ">=3.11,<3.14"
@@ -93,10 +93,22 @@ qwen = [
   "transformers>=4.57,<6",
 ]
 
-# Text and multimodal retrieval stack.
+# Text retrieval; use qwen-retrieval for the validated Qwen multimodal path.
 retrieval = [
   "sentence-transformers>=5.4,<7",
 ]
+
+# Multimodal image retrieval and configuration are separate opt-in capabilities.
+qwen-retrieval = [
+  "sentence-transformers[image]>=5.4,<7",
+  "torch>=2.8,<3",
+  "torchvision>=0.23,<1",
+  "transformers>=5.0,<6",
+  "accelerate>=1.10,<2",
+  "huggingface-hub>=0.34,<2",
+  "qwen-vl-utils>=0.0.14,<1",
+]
+config = ["PyYAML>=6.0.2,<7"]
 
 # Interactive notebook environment.
 notebooks = [
@@ -109,6 +121,9 @@ notebooks = [
 # Development, testing, static analysis, and security tooling.
 dev = [
   "mypy>=1.18,<2",
+  "huggingface-hub>=0.34,<2",
+  "PyYAML>=6.0.2,<7",
+  "types-PyYAML>=6,<7",
   "pip-audit>=2.9,<3",
   "pytest>=9.0.3,<10",
   "pytest-cov>=7.1,<8",
@@ -117,13 +132,14 @@ dev = [
 
 # Complete runtime feature set.
 all = [
+  "PyYAML>=6.0.2,<7",
   "accelerate>=1.10,<2",
   "huggingface-hub>=0.34,<2",
   "qwen-vl-utils>=0.0.14,<1",
-  "sentence-transformers>=5.4,<7",
+  "sentence-transformers[image]>=5.4,<7",
   "torch>=2.8,<3",
   "torchvision>=0.23,<1",
-  "transformers>=4.57,<6",
+  "transformers>=5.0,<6",
 ]
 
 
@@ -156,6 +172,7 @@ testpaths = [
   "tests",
 ]
 addopts = "-ra -q"
+markers = ["real_model: opt-in large model tests; require VLM_RUN_REAL_MODEL_TESTS=1"]
 
 
 # ---------------------------------------------------------------------------

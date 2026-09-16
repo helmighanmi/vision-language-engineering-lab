@@ -55,18 +55,17 @@ def test_python_classifiers_match_supported_versions() -> None:
     classifiers = set(pyproject["project"]["classifiers"])
 
     expected_classifiers = {
-        f"Programming Language :: Python :: {version}"
-        for version in SUPPORTED_PYTHON_VERSIONS
+        f"Programming Language :: Python :: {version}" for version in SUPPORTED_PYTHON_VERSIONS
     }
 
     assert expected_classifiers <= classifiers
 
 
-def test_package_version_is_0_2_1() -> None:
+def test_package_version_is_0_3_0() -> None:
     """The patch release must carry the expected package version."""
     pyproject = _load_pyproject()
 
-    assert pyproject["project"]["version"] == "0.2.1"
+    assert pyproject["project"]["version"] == "0.3.0"
 
 
 def test_sentence_transformers_support_range_is_declared() -> None:
@@ -84,4 +83,4 @@ def test_all_extra_contains_sentence_transformers() -> None:
 
     all_dependencies = pyproject["project"]["optional-dependencies"]["all"]
 
-    assert "sentence-transformers>=5.4,<7" in all_dependencies
+    assert "sentence-transformers[image]>=5.4,<7" in all_dependencies

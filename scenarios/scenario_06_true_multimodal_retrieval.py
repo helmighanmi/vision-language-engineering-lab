@@ -41,7 +41,7 @@ def main() -> int:
         args.embedding_model,
         trust_remote_code=args.trust_remote_code,
     )
-    image_inputs = [str(path) for path in args.images]
+    image_inputs = [{"image": str(path)} for path in args.images]
     document_vectors = embedder.encode(image_inputs)
     query_vector = embedder.encode([args.query], prompt=args.prompt)[0]
 

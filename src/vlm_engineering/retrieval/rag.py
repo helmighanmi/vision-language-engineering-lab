@@ -94,9 +94,9 @@ class VisualRAGPipeline:
             chunks:
                 Visual chunks whose textual representations will be indexed.
         """
-        self._chunks = list(chunks)
-
         if not chunks:
+            self.index.clear()
+            self._chunks = []
             return
 
         texts = [chunk.text for chunk in chunks]
@@ -106,6 +106,7 @@ class VisualRAGPipeline:
             embeddings,
             chunks,
         )
+        self._chunks = list(chunks)
 
     def retrieve(
         self,
@@ -129,6 +130,9 @@ class VisualRAGPipeline:
 
         if not question.strip():
             raise ValueError("question must not be empty.")
+
+        if not self._chunks:
+            return []
 
         query_embedding = self.embedder.encode([question])[0]
 
@@ -173,11 +177,7 @@ class VisualRAGPipeline:
             )
 
         evidence = "\n\n".join(
-            (
-                f"SOURCE: {chunk.source_file}, page {chunk.page}\n"
-                f"{chunk.text}"
-            )
-            for chunk in chunks
+            (f"SOURCE: {chunk.source_file}, page {chunk.page}\n{chunk.text}") for chunk in chunks
         )
 
         prompt = (

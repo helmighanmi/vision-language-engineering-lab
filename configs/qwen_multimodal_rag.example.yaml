@@ -1,0 +1,26 @@
+# Path: configs/qwen_multimodal_rag.example.yaml
+# Author: GHANMI Helmi
+# Current Role: AI Engineer
+# Past Role: Researcher in Applied Mathematics
+# Research Profile: https://www.researchgate.net/profile/Ghanmi-Helmi
+
+version: 1
+embedding:
+  model:
+    model_size: 2b
+    trust_remote_code: false
+    local_files_only: false
+  batch_size: 1
+  dimensions: 1024
+  normalize_embeddings: true
+reranker:
+  model:
+    model_size: 2b
+    trust_remote_code: false
+    local_files_only: false
+  batch_size: 1
+  normalize_scores: false
+rag:
+  top_k: 3
+  candidate_k: 12
+  max_new_tokens: 256
