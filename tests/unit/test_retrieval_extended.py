@@ -33,6 +33,9 @@ class FakeSentenceModel:
             ]
         ] = []
 
+    def get_sentence_embedding_dimension(self) -> int:
+        return 2
+
     def encode(
         self,
         inputs: list[Any],
@@ -47,10 +50,7 @@ class FakeSentenceModel:
         )
 
         return np.asarray(
-            [
-                [1.0, 0.0]
-                for _ in inputs
-            ],
+            [[1.0, 0.0] for _ in inputs],
             dtype=np.float64,
         )
 
@@ -69,6 +69,7 @@ class FakeCrossEncoder:
     def predict(
         self,
         pairs: list[tuple[Any, Any]],
+        **kwargs: Any,
     ) -> list[float]:
         """Return deterministic reranking scores."""
         self.pairs = pairs
@@ -220,10 +221,7 @@ def test_vector_index_returns_rank_and_score() -> None:
 
     assert len(results) == 2
 
-    assert [
-        result.rank
-        for result in results
-    ] == [
+    assert [result.rank for result in results] == [
         1,
         2,
     ]
@@ -267,6 +265,7 @@ def test_multimodal_embedder_forwards_prompt() -> None:
     model = FakeSentenceModel()
 
     embedder = QwenMultimodalEmbedder(
+        model_id="test/model",
         model=model,
     )
 
@@ -284,6 +283,10 @@ def test_multimodal_embedder_forwards_prompt() -> None:
 
     assert model.calls[0][1] == {
         "prompt": "Retrieve relevant visual evidence",
+        "batch_size": 1,
+        "normalize_embeddings": False,
+        "convert_to_numpy": True,
+        "show_progress_bar": False,
     }
 
 
@@ -293,6 +296,7 @@ def test_multimodal_embedder_without_prompt() -> None:
     model = FakeSentenceModel()
 
     embedder = QwenMultimodalEmbedder(
+        model_id="test/model",
         model=model,
     )
 
@@ -305,7 +309,13 @@ def test_multimodal_embedder_without_prompt() -> None:
     )
 
     assert result.shape == (1, 2)
-    assert model.calls[0][1] == {}
+    assert model.calls[0][1] == {
+        "prompt": None,
+        "batch_size": 1,
+        "normalize_embeddings": False,
+        "convert_to_numpy": True,
+        "show_progress_bar": False,
+    }
 
 
 def test_reranker_builds_query_document_pairs() -> None:
@@ -327,12 +337,12 @@ def test_reranker_builds_query_document_pairs() -> None:
 
     assert model.pairs == [
         (
-            "question",
-            "doc-a",
+            {"text": "question"},
+            {"text": "doc-a"},
         ),
         (
-            "question",
-            "doc-b",
+            {"text": "question"},
+            {"text": "doc-b"},
         ),
     ]
 
@@ -413,28 +423,17 @@ def test_visual_rag_answer_includes_grounded_evidence() -> None:
         top_k=1,
     )
 
-    assert result.answer == (
-        "Redis is used for caching "
-        "(architecture.pdf, page 1)."
-    )
+    assert result.answer == ("Redis is used for caching (architecture.pdf, page 1).")
 
-    assert result.chunks == (
-        redis_chunk,
-    )
+    assert result.chunks == (redis_chunk,)
 
     assert generator.image == "redis.png"
 
     assert "Where is the cache?" in generator.prompt
 
-    assert (
-        "SOURCE: architecture.pdf, page 1"
-        in generator.prompt
-    )
+    assert "SOURCE: architecture.pdf, page 1" in generator.prompt
 
-    assert (
-        "Answer only from the provided evidence"
-        in generator.prompt
-    )
+    assert "Answer only from the provided evidence" in generator.prompt
 
     assert generator.max_new_tokens == 700
 
@@ -467,9 +466,7 @@ def test_visual_rag_answer_preserves_retrieved_chunk_metadata() -> None:
         top_k=1,
     )
 
-    assert result.chunks == (
-        chunk,
-    )
+    assert result.chunks == (chunk,)
 
     assert result.chunks[0].metadata == {
         "test_fixture": True,

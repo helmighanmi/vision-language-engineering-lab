@@ -38,3 +38,9 @@ artifacts/
 # Editors / OS
 .vscode/
 .DS_Store
+
+# Local credentials and editor temporary files
+.env
+.env.*
+!.env.example
+*.swp

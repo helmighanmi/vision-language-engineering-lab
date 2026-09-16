@@ -1,0 +1,26 @@
+# Path: .dockerignore
+# Author: GHANMI Helmi
+# Current Role: AI Engineer
+# Past Role: Researcher in Applied Mathematics
+# Research Profile: https://www.researchgate.net/profile/Ghanmi-Helmi
+.git/
+.venv/
+models/
+data/
+.cache/
+.huggingface/
+.env
+.env.*
+*.safetensors
+*.bin
+*.swp
+build/
+dist/
+*.egg-info/
+__pycache__/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+outputs/
+artifacts/

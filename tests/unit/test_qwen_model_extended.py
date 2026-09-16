@@ -8,12 +8,21 @@
 
 from __future__ import annotations
 
+import contextlib
+import sys
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
+from PIL import Image
 
 from vlm_engineering.qwen.model import QwenVLModel, _normalize_image_source
+
+
+@pytest.fixture(autouse=True)
+def fake_inference_mode(monkeypatch):
+    monkeypatch.setitem(sys.modules, "torch", SimpleNamespace(inference_mode=contextlib.nullcontext))
 
 
 class FakeInputIDs:
@@ -289,7 +298,7 @@ def test_generate_uses_absolute_local_image_path(
 ) -> None:
     """Local images must be sent to Transformers as normal filesystem paths."""
     image = tmp_path / "diagram.png"
-    image.write_bytes(b"fake-image")
+    Image.new("RGB", (4, 4)).save(image)
 
     fake_model = FakeModel()
     fake_processor = FakeProcessor()
@@ -349,7 +358,7 @@ def test_generate_adds_system_prompt_when_provided(
 ) -> None:
     """A supplied system prompt should precede the user image message."""
     image = tmp_path / "diagram.png"
-    image.write_bytes(b"fake-image")
+    Image.new("RGB", (4, 4)).save(image)
 
     fake_processor = FakeProcessor()
 
@@ -385,7 +394,7 @@ def test_generate_passes_expected_chat_template_options(
 ) -> None:
     """The processor should receive the generation-oriented chat-template flags."""
     image = tmp_path / "diagram.png"
-    image.write_bytes(b"fake-image")
+    Image.new("RGB", (4, 4)).save(image)
 
     fake_processor = FakeProcessor()
 
@@ -412,7 +421,7 @@ def test_generate_moves_processor_inputs_to_model_device(
 ) -> None:
     """Prepared model inputs should be moved to the model device."""
     image = tmp_path / "diagram.png"
-    image.write_bytes(b"fake-image")
+    Image.new("RGB", (4, 4)).save(image)
 
     fake_processor = FakeProcessor()
 
@@ -434,7 +443,7 @@ def test_generate_forwards_max_new_tokens_to_model(
 ) -> None:
     """Generation length must be forwarded to the backend model."""
     image = tmp_path / "diagram.png"
-    image.write_bytes(b"fake-image")
+    Image.new("RGB", (4, 4)).save(image)
 
     fake_model = FakeModel()
 
@@ -457,7 +466,7 @@ def test_generate_decodes_only_new_tokens(
 ) -> None:
     """Prompt tokens should be removed before decoding the model response."""
     image = tmp_path / "diagram.png"
-    image.write_bytes(b"fake-image")
+    Image.new("RGB", (4, 4)).save(image)
 
     fake_processor = FakeProcessor()
 
@@ -603,3 +612,51 @@ def test_unknown_non_path_string_is_preserved() -> None:
         )
         == encoded_or_backend_specific_value
     )
+
+
+def test_generate_multiple_images_keeps_order(tmp_path):
+    paths = [tmp_path / "one.png", tmp_path / "two.png"]
+    for path in paths:
+        Image.new("RGB", (4, 4)).save(path)
+    processor = FakeProcessor()
+    model = FakeModel()
+    wrapper = QwenVLModel(model=model, processor=processor)
+    wrapper.generate_images(paths, "Compare evidence", max_new_tokens=55)
+    assert processor.messages is not None
+    content = processor.messages[-1]["content"]
+    assert [item["url"] for item in content[:-1]] == list(map(str, paths))
+    assert content[-1] == {"type": "text", "text": "Compare evidence"}
+    assert model.generate_kwargs["max_new_tokens"] == 55
+
+
+@pytest.mark.parametrize("images", [[], "one.png", ["x.png"] * 17])
+def test_invalid_image_batch(images):
+    with pytest.raises(ValueError, match="between 1 and 16"):
+        QwenVLModel().generate_images(images, "question")
+
+
+def test_corrupt_generation_image_before_loading(tmp_path, monkeypatch):
+    path = tmp_path / "corrupt.png"
+    path.write_bytes(b"broken")
+    model = QwenVLModel()
+    monkeypatch.setattr(model, "_ensure_loaded", lambda: pytest.fail("should validate first"))
+    with pytest.raises(ValueError, match="corrupt"):
+        model.generate(path, "question")
+
+
+def test_generator_load_programming_error_not_hidden(monkeypatch):
+    sentinel = TypeError("internal bug")
+
+    class Factory:
+        @staticmethod
+        def from_pretrained(*args, **kwargs):
+            raise sentinel
+
+    monkeypatch.setitem(
+        sys.modules,
+        "transformers",
+        SimpleNamespace(AutoProcessor=Factory, AutoModelForImageTextToText=Factory),
+    )
+    with pytest.raises(TypeError) as error:
+        QwenVLModel()._ensure_loaded()
+    assert error.value is sentinel

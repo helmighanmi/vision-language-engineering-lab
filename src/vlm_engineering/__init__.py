@@ -22,9 +22,13 @@ from .qwen.registry import (
     QwenModelPreset,
     resolve_qwen_model_id,
 )
+from .retrieval import MultimodalRAGPipeline, QwenVLEmbedder, QwenVLReranker
 from .retrieval.rag import RAGAnswer, VisualRAGPipeline
 
 __all__ = [
+    "QwenVLEmbedder",
+    "QwenVLReranker",
+    "MultimodalRAGPipeline",
     "CLIPEncoder",
     "DEFAULT_QWEN_MODEL_SIZE",
     "NativePageContent",

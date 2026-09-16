@@ -13,6 +13,8 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import Mapping
 
+from ..exceptions import InputValidationError
+
 
 @dataclass(frozen=True, slots=True)
 class QwenModelPreset:
@@ -55,7 +57,7 @@ def normalize_model_size(model_size: str) -> str:
     normalized = model_size.strip().lower()
     if normalized not in QWEN3_VL_INSTRUCT_MODELS:
         supported = ", ".join(QWEN3_VL_INSTRUCT_MODELS)
-        raise ValueError(f"Unsupported Qwen model size {model_size!r}. Choose one of: {supported}.")
+        raise InputValidationError(f"Unsupported Qwen model size {model_size!r}. Choose one of: {supported}.")
     return normalized
 
 
@@ -70,11 +72,11 @@ def resolve_qwen_model_id(
     avoid silently running a different model than the caller intended.
     """
     if model_size is not None and model_id is not None:
-        raise ValueError("Provide either model_size or model_id, not both.")
+        raise InputValidationError("Provide either model_size or model_id, not both.")
     if model_id is not None:
         value = model_id.strip()
         if not value:
-            raise ValueError("model_id must not be empty.")
+            raise InputValidationError("model_id must not be empty.")
         return value
 
     size = normalize_model_size(model_size or DEFAULT_QWEN_MODEL_SIZE)

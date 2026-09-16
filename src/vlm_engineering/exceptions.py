@@ -21,3 +21,7 @@ class ModelLoadError(VLMEngineeringError):
 
 class StructuredOutputError(VLMEngineeringError):
     """Raised when model output cannot be validated as structured data."""
+
+
+class InputValidationError(ValueError, VLMEngineeringError):
+    """Invalid user input/configuration, safe to report concisely at the CLI."""

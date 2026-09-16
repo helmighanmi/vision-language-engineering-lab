@@ -14,7 +14,7 @@ Research Profile: https://www.researchgate.net/profile/Ghanmi-Helmi
 
 The reusable implementation lives under `src/vlm_engineering`. Notebooks are analysis/demo clients only, while `examples/` and `scenarios/` provide runnable package usage patterns.
 
-> **v0.2.1 compatibility target:** Python 3.11, 3.12, and 3.13. Compatibility is validated in CI on every supported Python version before release.
+> **v0.3.0 compatibility target:** Python 3.11, 3.12, and 3.13. Compatibility is validated in CI on every supported Python version before release.
 
 Contributions are welcome. See [Contributing](#20-contributing) and [`CONTRIBUTING.md`](CONTRIBUTING.md).
 
@@ -241,7 +241,7 @@ The project intentionally separates:
 
 ## 3. Python compatibility
 
-v0.2.1 targets:
+v0.3.0 targets:
 
 | Python | Support |
 |---|---:|
@@ -255,7 +255,7 @@ The package metadata declares:
 >=3.11,<3.14
 ```
 
-GitHub Actions validates the supported versions independently. The compatibility matrix checks package installation, dependency resolution, runtime imports, Ruff, mypy, pytest, coverage, and dependency security auditing.
+GitHub Actions validates the supported versions independently. The normal compatibility matrix checks lightweight package installation, public imports, Ruff, mypy, deterministic pytest, coverage and the core dependency audit. The manual runtime compatibility workflow checks optional ML imports on the same Python versions without downloading weights.
 
 Ruff targets Python 3.11 syntax so package code does not accidentally rely on Python 3.12+ syntax.
 
@@ -649,61 +649,164 @@ After retrieval, the final VLM can inspect the original image again rather than 
 
 ---
 
-## 13. True multimodal embeddings and reranking
+## 13. Multimodal retrieval and RAG — implemented in v0.3.0
 
-### Multimodal embeddings
+Install the multimodal backend and optional runtime profiles:
+
+```bash
+python -m pip install -e ".[qwen-retrieval,config]"
+```
+
+`qwen-retrieval` uses `sentence-transformers[image]>=5.4,<7`, Transformers
+`>=5.0,<6`, torch and torchvision. The reranker's Sentence Transformers
+`any-to-any` path requires Transformers v5+, even though direct Qwen generation
+can use 4.57. See [upstream findings](docs/multimodal-retrieval.md#upstream-basis).
+
+### Embedding and reranking
 
 ```python
-from vlm_engineering.retrieval import QwenMultimodalEmbedder
+from vlm_engineering import QwenVLEmbedder, QwenVLReranker
 
-embedder = QwenMultimodalEmbedder(
-    "Qwen/Qwen3-VL-Embedding-2B"
-)
-
-queries = [
-    "Find the architecture diagram containing a cache and database."
-]
-
+embedder = QwenVLEmbedder(model_size="2b", dimensions=1024)
+text_vector = embedder.embed_text("architecture diagram")
+image_vector = embedder.embed_image("data/diagram_random_clean.png")
 documents = [
-    "A textual architecture note",
-    "data/architecture.png",
-    {"text": "Payment architecture", "image": "data/architecture.png"},
+    {"text": "Redis provides caching."},
+    {"image": "data/diagram_random_clean.png"},
+    {"text": "Architecture", "image": "data/diagram_random_clean.png"},
 ]
-
-q = embedder.encode(
-    queries,
-    prompt="Retrieve relevant technical document evidence.",
-)
-d = embedder.encode(documents)
-
-print(q @ d.T)
+vectors = embedder.encode(documents)
+reranker = QwenVLReranker(model_size="2b")
+scores = reranker.score("Find the cache", documents)  # raw logits
+ranked = reranker.rerank("Find the cache", documents, top_k=2)
 ```
 
-### Multimodal reranking
+Both adapters default to `batch_size=1`, lazy loading, and
+`trust_remote_code=False`. Select `2b`, `8b`, a compatible `model_id`, or an
+explicit `model_path`; those selectors are mutually exclusive. Device, cache,
+revision and `local_files_only` are supported. `unload()` releases the wrapper's
+model reference; external references and allocator caches can retain memory.
+
+Embeddings are normalized by default. Dimensions range from 64 to 2048 (2B)
+or 4096 (8B). Truncation precedes normalization. For custom/local models,
+the actual backend dimension is checked on first inference; the config command
+can only validate the known preset/global bounds.
+
+Use `normalize_scores=True` for sigmoid scores in [0, 1]. These are **not
+calibrated probabilities**. Ties retain input order. Ranking returns
+`SearchResult(item, score, rank)` with the original candidate and one-based rank.
+
+The strict retrieval contract accepts `{"text": ...}`, `{"image": ...}`, or
+both. Plain text strings remain shorthand; path-like strings must use an
+explicit key. Images must be existing local, decodable single-frame PNG, JPEG,
+WEBP, BMP or TIFF files. Local `file://` URIs become normal paths. Download
+remote images yourself first. Unknown fields, video, empty fields and invalid
+images are rejected before model loading.
+
+### True multimodal RAG
 
 ```python
-from vlm_engineering.retrieval import QwenMultimodalReranker
-
-reranker = QwenMultimodalReranker()
-
-scores = reranker.score(
-    "Which diagram shows the payment database?",
-    ["candidate text", "data/diagram.png"],
+from vlm_engineering import (
+    MultimodalRAGPipeline, QwenVLModel, QwenVLEmbedder, QwenVLReranker,
+    NativePageContent, VisualAnalysis, VisualChunkBuilder,
 )
 
-print(scores)
+chunk = VisualChunkBuilder().build(
+    NativePageContent("demo", 1, "architecture.pdf",
+                      image_ref="data/diagram_random_clean.png"),
+    VisualAnalysis("diagram", "Architecture", "Technical architecture diagram."),
+)
+pipeline = MultimodalRAGPipeline(
+    QwenVLEmbedder(), QwenVLModel(), QwenVLReranker(),
+    candidate_k=12, top_k=3, max_new_tokens=256,
+)
+pipeline.index_chunks([chunk])
+answer = pipeline.answer("Which components are connected?")
+print(answer.answer)
 ```
 
-Recommended production pattern:
+The pipeline embeds each chunk's text **and original image**, retrieves
+`candidate_k`, optionally reranks, and generates using the selected `top_k`
+chunks. Every selected original image is attached, deduplicated and numbered in
+the evidence prompt. Document/page/source/metadata remain available in the
+returned chunks. A query image can be supplied with `answer(..., query_image=...)`
+or `retrieve({"text": ..., "image": ...})`.
 
-```text
-query
-  -> Qwen3-VL-Embedding -> top K candidates
-  -> Qwen3-VL-Reranker  -> top 3-5
-  -> retrieve chunk text + original image
-  -> selected Qwen3-VL-Instruct model
-  -> grounded answer with source/page
+`candidate_k >= top_k > 0` is enforced. Re-indexing replaces the collection;
+empty re-indexing clears it. Failed indexing retains the previous complete
+index. The pipeline is synchronous and not designed for concurrent mutation.
+No matches return an empty-evidence answer. Retrieved text without any original
+image raises an explicit error for final visual generation. A query image alone
+does not count as source evidence.
+
+`QwenVLModel.generate_images()` accepts 1–16 images in order; RAG cannot exceed
+that limit (including a query image). Large images/multiple pages increase memory
+requirements sharply. `generate(image, prompt)` remains supported.
+
+### CLI and local/offline workflow
+
+```bash
+vlm-lab embed --text "Find a cache diagram" --model-size 2b --dimensions 1024
+vlm-lab embed --image data/diagram_random_clean.png --model-size 2b
+# candidates.json is a JSON list of text strings or explicit text/image objects.
+vlm-lab rerank --query "Find the architecture" --documents-json candidates.json
+
+vlm-lab download-model --embedding-size 2b --output models/Qwen3-VL-Embedding-2B
+vlm-lab download-model --reranker-size 2b --output models/Qwen3-VL-Reranker-2B
+HF_HUB_OFFLINE=1 vlm-lab embed --text "architecture" \
+  --model-path models/Qwen3-VL-Embedding-2B
 ```
+
+`model_path` forces `local_files_only=True`. Structural preflight checks the
+root-layout config, tokenizer, processor, safetensors and indexed shards. It
+cannot prove tensor integrity or completeness of arbitrary custom layouts;
+backend failures retain the underlying exception and give actionable advice.
+No weights ship in wheels/images; no shared Hugging Face cache is deleted.
+
+### Runtime YAML
+
+```bash
+vlm-lab validate-config configs/qwen_multimodal_rag.example.yaml
+```
+
+Validation uses `yaml.safe_load`, rejects unknown keys and invalid field types,
+and requires `version: 1`. It does not load models or require model directories
+to have been downloaded. Paths are relative to the **working directory**.
+The profile configures retrieval and RAG; the application supplies its generator:
+
+```python
+from vlm_engineering import QwenVLModel
+from vlm_engineering.runtime_config import load_runtime_config
+
+config = load_runtime_config("configs/qwen_multimodal_rag.example.yaml")
+pipeline = config.build_pipeline(QwenVLModel())
+```
+
+### Validation status and roadmap
+
+**IMPLEMENTED:** validated adapters, in-memory multimodal retrieval/reranking,
+original multi-image evidence generation, local/offline selection, runtime YAML,
+CLI, deterministic failure tests, and gated real-model tests.
+
+Real-model inference and hardware memory limits require separate GPU validation;
+passing fake-backend tests does not certify model quality. See
+[real-model commands and limitations](docs/testing.md) and
+[resource guidance](docs/multimodal-retrieval.md#resources).
+
+**ROADMAP:** persistent vector storage, evaluation/benchmarks, explicit resource
+profiles, video/temporal reasoning, async/streaming/serving, richer OCR and visual
+grounding. These are not implemented by this release.
+
+### Migration from v0.2.1
+
+`QwenMultimodalEmbedder` and `QwenMultimodalReranker` remain aliases in their old
+import locations. Positional model IDs and injected models remain supported.
+Embedding defaults now normalize outputs and use batch size 1; malformed model
+outputs raise errors. Change bare image strings to `{"image": path}`. Retrieval
+URLs/video/backend-specific objects are intentionally rejected. Injected backends
+must implement the documented Sentence Transformers keyword arguments and custom
+embedders must report their dimension. Single-image generation now validates local
+image bytes, so placeholder/corrupt files fail early.
 
 ---
 
@@ -826,7 +929,7 @@ From the repository root:
 docker compose build
 ```
 
-The image is built from the repository `Dockerfile`, which currently uses Python 3.12 as the reference container runtime. The package itself targets Python 3.11-3.13 in v0.2.1.
+The image is built from the repository `Dockerfile`, which currently uses Python 3.12 as the reference container runtime. The package itself targets Python 3.11-3.13 in v0.3.0.
 
 ### Check the CLI inside the container
 
@@ -1121,7 +1224,7 @@ python -m pip check
 python -m pip show sentence-transformers torch transformers
 ```
 
-v0.2.1 allows Sentence Transformers 5.4 through the 6.x line, while CI validates the dependency stack on Python 3.11-3.13.
+v0.3.0 allows Sentence Transformers 5.4 through 6.x. Multimodal retrieval additionally requires Transformers v5. Use the manual runtime compatibility workflow to validate optional ML imports on Python 3.11–3.13.
 
 ### Which Qwen model should I choose?
 

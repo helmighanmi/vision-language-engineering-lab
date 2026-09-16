@@ -23,11 +23,7 @@ def test_public_package_exports_expected_symbols() -> None:
         "VisualRAGPipeline",
     }
 
-    missing = [
-        name
-        for name in expected_exports
-        if not hasattr(vlm_engineering, name)
-    ]
+    missing = [name for name in expected_exports if not hasattr(vlm_engineering, name)]
 
     assert not missing, f"Missing public exports: {missing}"
 
@@ -45,11 +41,7 @@ def test_cli_exposes_expected_commands() -> None:
 
     parser = build_parser()
 
-    subparsers = next(
-        action
-        for action in parser._actions
-        if action.dest == "command"
-    )
+    subparsers = next(action for action in parser._actions if action.dest == "command")
 
     choices = subparsers.choices
 
@@ -61,6 +53,9 @@ def test_cli_exposes_expected_commands() -> None:
         "chunk",
         "download-model",
         "models",
+        "embed",
+        "rerank",
+        "validate-config",
     }
 
 
