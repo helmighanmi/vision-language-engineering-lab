@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Vision-Language Engineering Lab — Architecture Map</title>
+<!--
+Path: docs/interactive-architecture.html
+Author: GHANMI Helmi
+Current Role: AI Engineer
+Past Role: Researcher in Applied Mathematics
+Research Profile: https://www.researchgate.net/profile/Ghanmi-Helmi
+-->
+<style>
+:root{color-scheme:light dark;--bg:#0b1020;--panel:#121a2c;--card:#172136;--text:#eef4ff;--muted:#aab7ce;--border:#31405e;--accent:#7aa2ff;--accentbg:#20345f}
+@media(prefers-color-scheme:light){:root{--bg:#f7f9fc;--panel:#fff;--card:#f2f5fa;--text:#172033;--muted:#5b6880;--border:#d8deea;--accent:#3b67d8;--accentbg:#e8efff}}
+*{box-sizing:border-box}body{margin:0;font:16px/1.5 system-ui,-apple-system,Segoe UI,sans-serif;background:var(--bg);color:var(--text)}button{font:inherit;color:inherit}.wrap{width:min(1100px,calc(100% - 28px));margin:auto;padding:28px 0 48px}.hero h1{margin:.4rem 0;font-size:clamp(1.8rem,4vw,2.6rem)}.muted{color:var(--muted)}.badge,.chip{display:inline-block;border:1px solid var(--border);border-radius:999px;padding:5px 10px;background:var(--panel);font-size:.86rem}.tabs{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin:20px 0}.tab,.service,.next{min-height:44px;border:1px solid var(--border);border-radius:10px;background:var(--panel);cursor:pointer;padding:10px}.tab[aria-selected=true],.service.active,.next{border-color:var(--accent);background:var(--accentbg)}.panel,.card{border:1px solid var(--border);border-radius:14px;background:var(--panel);padding:18px}.card{background:var(--card)}.grid2,.grid3{display:grid;gap:12px}.grid2{grid-template-columns:repeat(2,1fr)}.grid3{grid-template-columns:repeat(3,1fr)}.hidden{display:none}.services{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}.service{text-align:left;background:var(--card)}.service small{display:block;color:var(--muted);margin-top:4px}.detail{margin-top:12px}.mono,pre{font-family:ui-monospace,SFMono-Regular,Menlo,monospace}.api{margin-top:12px;padding:10px;border-radius:8px;background:var(--card);overflow-wrap:anywhere}.flowwrap,.svgwrap{overflow-x:auto}.flow{display:grid;grid-template-columns:1fr auto 1fr auto 1fr auto 1fr auto 1fr;gap:8px;align-items:center;min-width:760px}.step{border:1px solid var(--border);border-radius:10px;background:var(--card);padding:12px;text-align:center}.arrow{color:var(--muted);font-size:1.4rem}.chips{display:flex;flex-wrap:wrap;gap:8px}.lesson{display:flex;gap:16px;align-items:center;justify-content:space-between;margin-top:16px}.lesson .next{flex:none}.arch{min-width:700px;width:100%;height:auto}.arch text{fill:var(--text);font-family:inherit}.arch .sub{fill:var(--muted)}.arch .node{fill:var(--card);stroke:var(--border);stroke-width:1.5}.arch .edge{fill:none;stroke:var(--muted);stroke-width:1.5;opacity:.65}.note{margin-top:16px;border-left:4px solid var(--accent);padding:12px 14px;background:var(--card);border-radius:8px;color:var(--muted)}pre{margin:0;color:var(--muted);overflow:auto;font-size:.82rem;line-height:1.6}@media(max-width:760px){.tabs{grid-template-columns:repeat(2,1fr)}.grid2,.grid3,.services{grid-template-columns:1fr}.lesson{align-items:stretch;flex-direction:column}.next{width:100%}}
+</style>
+</head>
+<body>
+<main class="wrap">
+<header class="hero"><span class="badge">vision-language-engineering-lab · v0.3.1</span><h1>Interactive architecture map</h1><p class="muted">Explore the structure, services, multimodal RAG flow, and repository organization of the package.</p></header>
+<nav class="tabs" role="tablist" aria-label="Architecture views">
+<button class="tab" data-view="architecture" aria-selected="true">Architecture</button><button class="tab" data-view="services" aria-selected="false">Services</button><button class="tab" data-view="flow" aria-selected="false">RAG flow</button><button class="tab" data-view="repo" aria-selected="false">Repository</button>
+</nav>
+<section class="view" data-panel="architecture">
+<div class="panel"><h2>Package layers</h2><div class="svgwrap"><svg class="arch" viewBox="0 0 820 440" role="img" aria-label="Package architecture">
+<defs><marker id="a" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8z" fill="currentColor"/></marker></defs>
+<g class="edge" marker-end="url(#a)"><path d="M410 78V120"/><path d="M410 185L205 240"/><path d="M410 185V240"/><path d="M410 185L615 240"/><path d="M205 310L410 360"/><path d="M410 310V360"/><path d="M615 310L410 360"/></g>
+<rect class="node" x="250" y="18" width="320" height="60" rx="13"/><text x="410" y="44" text-anchor="middle" font-size="16" font-weight="700">User-facing entry points</text><text class="sub" x="410" y="64" text-anchor="middle" font-size="12">Python API · vlm-lab CLI · examples · scenarios</text>
+<rect class="node" x="235" y="120" width="350" height="65" rx="13"/><text x="410" y="147" text-anchor="middle" font-size="16" font-weight="700">Orchestration layer</text><text class="sub" x="410" y="168" text-anchor="middle" font-size="12">MultimodalRAGPipeline · VisualRAGPipeline</text>
+<rect class="node" x="70" y="240" width="270" height="70" rx="13"/><text x="205" y="269" text-anchor="middle" font-size="15" font-weight="700">Document intelligence</text><text class="sub" x="205" y="291" text-anchor="middle" font-size="12">schemas · analysis · chunking · fusion</text>
+<rect class="node" x="355" y="240" width="110" height="70" rx="13"/><text x="410" y="269" text-anchor="middle" font-size="15" font-weight="700">Retrieval</text><text class="sub" x="410" y="291" text-anchor="middle" font-size="11">embed · index · rerank</text>
+<rect class="node" x="480" y="240" width="270" height="70" rx="13"/><text x="615" y="269" text-anchor="middle" font-size="15" font-weight="700">Vision-language models</text><text class="sub" x="615" y="291" text-anchor="middle" font-size="12">Qwen3-VL · CLIP · registry</text>
+<rect class="node" x="210" y="360" width="400" height="65" rx="13"/><text x="410" y="387" text-anchor="middle" font-size="15" font-weight="700">Shared production infrastructure</text><text class="sub" x="410" y="408" text-anchor="middle" font-size="12">input validation · runtime config · errors · utilities</text>
+</svg></div></div>
+<div class="grid2" style="margin-top:12px"><div class="card"><h3>Design idea</h3><p class="muted">Heavy ML backends are wrapped behind small interfaces. RAG orchestration composes services without owning model internals.</p></div><div class="card"><h3>Public surface</h3><p class="muted">QwenVLModel, QwenVLEmbedder, QwenVLReranker, MultimodalRAGPipeline, VisualRAGPipeline, CLIPEncoder, and document schemas/builders.</p></div></div>
+</section>
+<section class="view hidden" data-panel="services">
+<div class="services"><button class="service" data-service="qwen"><strong>Qwen generation</strong><small>Image understanding and grounded generation</small></button><button class="service" data-service="embed"><strong>Multimodal embedding</strong><small>Text/image → vectors</small></button><button class="service" data-service="rerank"><strong>Multimodal reranking</strong><small>Query + candidates → ranking</small></button><button class="service" data-service="docs"><strong>Document intelligence</strong><small>Structured analysis and chunks</small></button><button class="service" data-service="clip"><strong>CLIP foundations</strong><small>Embeddings and zero-shot classification</small></button><button class="service" data-service="config"><strong>Runtime configuration</strong><small>Validated YAML → pipeline</small></button></div>
+<div id="detail" class="panel detail" aria-live="polite"><p class="muted">Select a service to inspect its role and public API.</p></div>
+</section>
+<section class="view hidden" data-panel="flow"><div class="panel"><h2>Multimodal RAG request path</h2><div class="flowwrap"><div class="flow"><div class="step"><strong>1. Query</strong><div class="muted">text + optional image</div></div><div class="arrow">→</div><div class="step"><strong>2. Embed</strong><div class="muted">QwenVLEmbedder</div></div><div class="arrow">→</div><div class="step"><strong>3. Retrieve</strong><div class="muted">candidate_k</div></div><div class="arrow">→</div><div class="step"><strong>4. Rerank</strong><div class="muted">top_k</div></div><div class="arrow">→</div><div class="step"><strong>5. Generate</strong><div class="muted">original evidence</div></div></div></div></div><div class="grid3" style="margin-top:12px"><div class="card"><h3>Indexing</h3><p class="muted">VisualChunk objects become multimodal inputs and are stored in InMemoryVectorIndex.</p></div><div class="card"><h3>Retrieval</h3><p class="muted">The query is embedded, candidate_k items are retrieved, then optionally reranked.</p></div><div class="card"><h3>Grounding</h3><p class="muted">Selected original images, fused text, and source/page metadata are passed to Qwen3-VL generation.</p></div></div></section>
+<section class="view hidden" data-panel="repo"><div class="grid2"><div class="panel"><h2>src/vlm_engineering/</h2><pre>├── cli.py
+├── inputs.py
+├── exceptions.py
+├── operational.py
+├── runtime_config.py
+├── clip/
+│   └── encoder.py
+├── documents/
+│   ├── schemas.py
+│   ├── visual_analysis.py
+│   ├── chunking.py
+│   └── fusion.py
+├── qwen/
+│   ├── model.py
+│   ├── registry.py
+│   └── downloader.py
+└── retrieval/
+    ├── backend.py
+    ├── in_memory.py
+    ├── model_options.py
+    ├── text_embedding.py
+    ├── multimodal_embedding.py
+    ├── reranker.py
+    ├── rag.py
+    └── multimodal_rag.py</pre></div><div class="panel"><h2>Repository services</h2><p><strong>configs/</strong> <span class="muted">runtime YAML profiles</span></p><p><strong>examples/</strong> <span class="muted">small API demos</span></p><p><strong>scenarios/</strong> <span class="muted">end-to-end workflows</span></p><p><strong>tests/</strong> <span class="muted">unit, contract, real-model validation</span></p><p><strong>Docker</strong> <span class="muted">reproducible CLI runtime</span></p><p><strong>GitHub Actions</strong> <span class="muted">CI and PyPI delivery</span></p></div></div><div class="panel" style="margin-top:12px"><h3>CLI surface</h3><div class="chips"><span class="chip">models</span><span class="chip">describe</span><span class="chip">analyze</span><span class="chip">chunk</span><span class="chip">download-model</span><span class="chip">embed</span><span class="chip">rerank</span><span class="chip">validate-config</span></div></div></section>
+<section class="panel lesson"><div><h3 style="margin:0 0 4px">Mental model</h3><div id="lesson" class="muted">Your package is layered: entry points call orchestration; orchestration composes document, retrieval, and model services; shared validation protects the boundaries.</div></div><button id="next" class="next">Teach me the next layer</button></section>
+<div class="note">Keep this file under <span class="mono">docs/interactive-architecture.html</span>. GitHub README files do not execute arbitrary JavaScript, so link to this file or host it with GitHub Pages.</div>
+</main>
+<script>
+const tabs=[...document.querySelectorAll('.tab')],views=[...document.querySelectorAll('.view')];function show(n){views.forEach(v=>v.classList.toggle('hidden',v.dataset.panel!==n));tabs.forEach(b=>b.setAttribute('aria-selected',b.dataset.view===n?'true':'false'))}tabs.forEach(b=>b.addEventListener('click',()=>show(b.dataset.view)));
+const data={qwen:['QwenVLModel — generation service','src/vlm_engineering/qwen/model.py','QwenVLModel · from_preset() · from_hub() · from_local() · generate() · generate_images()','Loads Qwen3-VL lazily and performs image-grounded generation from preset, Hub, or local/offline model sources.'],embed:['QwenVLEmbedder — retrieval recall','src/vlm_engineering/retrieval/multimodal_embedding.py','QwenVLEmbedder · encode() · embed_text() · embed_image()','Turns explicit text/image inputs into finite embeddings, validates dimensions and output shape, and optionally normalizes vectors.'],rerank:['QwenVLReranker — retrieval precision','src/vlm_engineering/retrieval/reranker.py','QwenVLReranker · score() · rerank()','Scores retrieved candidates against a multimodal query, validates score shape/finiteness, and performs stable reranking.'],docs:['Document intelligence','src/vlm_engineering/documents/','VisualAnalysis · NativePageContent · VisualChunk · VisualChunkBuilder · analyze_visual_document()','Extracts structured visual semantics and fuses them with native/OCR evidence into traceable VisualChunk objects.'],clip:['CLIPEncoder — foundational multimodal service','src/vlm_engineering/clip/encoder.py','CLIPEncoder · encode_text() · encode_images() · similarity() · zero_shot_classify()','Provides CLIP embeddings, cosine similarity, and zero-shot image classification.'],config:['Runtime configuration','src/vlm_engineering/runtime_config.py','RuntimeConfig · EmbeddingConfig · RerankerConfig · RAGConfig · load_runtime_config()','Safely loads versioned YAML, rejects unknown fields, validates limits, and can compose a lazy multimodal RAG pipeline.']};const detail=document.getElementById('detail'),services=[...document.querySelectorAll('.service')];services.forEach(b=>b.addEventListener('click',()=>{services.forEach(x=>x.classList.remove('active'));b.classList.add('active');const d=data[b.dataset.service];detail.innerHTML=`<h3>${d[0]}</h3><div class="mono muted">${d[1]}</div><p>${d[3]}</p><div class="api"><strong>Public API:</strong> ${d[2]}</div>`}));
+const lessons=['Layer 1 — Entry points: Python API, vlm-lab CLI, examples, and scenarios.','Layer 2 — Orchestration: VisualRAGPipeline and MultimodalRAGPipeline coordinate work without owning model internals.','Layer 3 — Domain services: Qwen generation, embedding, reranking, CLIP, document intelligence, and vector search.','Layer 4 — Safety infrastructure: input validation, exceptions, operational error mapping, and runtime configuration.','Layer 5 — Delivery: tests, Docker, TestPyPI/PyPI, and GitHub Actions make the package reproducible and releasable.'];let i=0;document.getElementById('next').addEventListener('click',()=>{document.getElementById('lesson').textContent=lessons[i++%lessons.length]});
+</script>
+</body>
+</html>

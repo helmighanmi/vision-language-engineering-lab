@@ -39,7 +39,13 @@ grounded answer
 Contributions are welcome. See [Contributing](#20-contributing) and [`CONTRIBUTING.md`](CONTRIBUTING.md).
 
 ---
+### Interactive architecture map
 
+Explore the package structure, services, and multimodal RAG flow:
+
+[Open the interactive architecture map](docs/interactive-architecture.html)
+
+---
 ## 1. Quick start
 
 ### Install from PyPI

@@ -8,6 +8,7 @@
 __pycache__/
 *.py[cod]
 .venv/
+.venv-testpypi/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
@@ -44,3 +45,4 @@ artifacts/
 .env.*
 !.env.example
 *.swp
+
