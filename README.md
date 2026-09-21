@@ -43,7 +43,7 @@ Contributions are welcome. See [Contributing](#20-contributing) and [`CONTRIBUTI
 
 Explore the package structure, services, and multimodal RAG flow:
 
-[Open the interactive architecture map](docs/interactive-architecture.html)
+[Open the interactive architecture map]([docs/interactive-architecture.html](https://github.com/helmighanmi/vision-language-engineering-lab/blob/main/docs/interactive-architecture.html))
 
 ---
 ## 1. Quick start
