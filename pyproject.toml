@@ -86,7 +86,7 @@ clip = [
 # torchvision is required by the Qwen3-VL processor stack.
 qwen = [
   "accelerate>=1.10,<2",
-  "huggingface-hub>=0.34,<2",
+  "huggingface-hub>=0.34,<3",
   "qwen-vl-utils>=0.0.14,<1",
   "torch>=2.8,<3",
   "torchvision>=0.23,<1",
@@ -105,7 +105,7 @@ qwen-retrieval = [
   "torchvision>=0.23,<1",
   "transformers>=5.0,<6",
   "accelerate>=1.10,<2",
-  "huggingface-hub>=0.34,<2",
+  "huggingface-hub>=0.34,<3",
   "qwen-vl-utils>=0.0.14,<1",
 ]
 config = ["PyYAML>=6.0.2,<7"]
@@ -121,7 +121,7 @@ notebooks = [
 # Development, testing, static analysis, and security tooling.
 dev = [
   "mypy>=1.18,<2",
-  "huggingface-hub>=0.34,<2",
+  "huggingface-hub>=0.34,<3",
   "PyYAML>=6.0.2,<7",
   "types-PyYAML>=6,<7",
   "pip-audit>=2.9,<3",
@@ -134,7 +134,7 @@ dev = [
 all = [
   "PyYAML>=6.0.2,<7",
   "accelerate>=1.10,<2",
-  "huggingface-hub>=0.34,<2",
+  "huggingface-hub>=0.34,<3",
   "qwen-vl-utils>=0.0.14,<1",
   "sentence-transformers[image]>=5.4,<7",
   "torch>=2.8,<3",
