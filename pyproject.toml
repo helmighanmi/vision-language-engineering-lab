@@ -54,7 +54,7 @@ classifiers = [
 
 dependencies = [
   "numpy>=1.26,<3",
-  "pillow>=12.3,<13",
+  "pillow>=12.3,<14",
 ]
 
 
