@@ -61,11 +61,11 @@ def test_python_classifiers_match_supported_versions() -> None:
     assert expected_classifiers <= classifiers
 
 
-def test_package_version_is_0_3_0() -> None:
+def test_package_version_is_0_3_2() -> None:
     """The patch release must carry the expected package version."""
     pyproject = _load_pyproject()
 
-    assert pyproject["project"]["version"] == "0.3.1"
+    assert pyproject["project"]["version"] == "0.3.2"
 
 
 def test_sentence_transformers_support_range_is_declared() -> None:
