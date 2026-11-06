@@ -1410,9 +1410,9 @@ The project uses:
 For the v0.3.1 release branch, deterministic validation reached:
 
 ```text
-340 passed
-2 deselected
-94.82% coverage
+347 passed
+2 skipped (opt-in real-model tests)
+95% coverage
 pip check: no broken requirements
 pip-audit: no known vulnerabilities
 ```

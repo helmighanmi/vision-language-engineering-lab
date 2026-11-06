@@ -4,7 +4,12 @@
 # Past Role: Researcher in Applied Mathematics
 # Research Profile: https://www.researchgate.net/profile/Ghanmi-Helmi
 
-.PHONY: install install-all test lint typecheck security quality
+.PHONY: bootstrap install install-all test lint typecheck security quality
+
+bootstrap:
+	python -m venv .venv
+	.venv/bin/python -m pip install --upgrade pip setuptools wheel
+	.venv/bin/python -m pip install -e ".[dev,config]"
 
 install:
 	python -m pip install -e ".[dev]"

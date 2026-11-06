@@ -16,6 +16,15 @@ def test_text_chunker_rejects_non_progressing_overlap() -> None:
         raise AssertionError("Expected ValueError")
 
 
+def test_text_chunker_rejects_non_positive_budget() -> None:
+    try:
+        TextChunker(max_chars=0)
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("Expected ValueError")
+
+
 def test_visual_chunk_is_traceable() -> None:
     native = NativePageContent("doc", 2, "demo.pdf", native_text="Exact ID: ABC-42", image_ref="page.png")
     visual = VisualAnalysis("diagram", "Architecture", "Service A calls DB", entities=("Service A", "DB"))

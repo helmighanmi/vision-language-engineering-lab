@@ -18,7 +18,7 @@ from .documents.chunking import VisualChunkBuilder
 from .documents.schemas import NativePageContent
 from .documents.visual_analysis import analyze_visual_document
 from .exceptions import VLMEngineeringError
-from .inputs import normalize_input, normalize_inputs
+from .inputs import normalize_input
 from .operational import backend_errors
 from .qwen.downloader import download_model_snapshot
 from .qwen.model import QwenVLModel
@@ -193,7 +193,6 @@ def cmd_rerank(args: argparse.Namespace) -> int:
         query["image"] = args.query_image
     prepared = normalize_input(query)
     documents = json.loads(Path(args.documents_json).read_text(encoding="utf-8"))
-    normalize_inputs(documents)
     reranker = QwenVLReranker(**_retrieval_options(args), normalize_scores=args.normalize_scores)
     results = reranker.rerank(prepared, documents, top_k=args.top_k, prompt=args.prompt)
     print(json.dumps([asdict(result) for result in results], ensure_ascii=False, allow_nan=False))

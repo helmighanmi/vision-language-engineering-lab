@@ -11,8 +11,10 @@ on:
     branches:
       - main
       - "feat/**"
+      - "feature/**"
       - "fix/**"
       - "refactor/**"
+      - "docs/**"
 
   pull_request:
     branches:

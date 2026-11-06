@@ -54,7 +54,7 @@ classifiers = [
 
 dependencies = [
   "numpy>=1.26,<3",
-  "pillow>=12.3,<13",
+  "pillow>=13,<14",
 ]
 
 
@@ -161,6 +161,10 @@ package-dir = { "" = "src" }
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+
+[tool.setuptools.package-data]
+vlm_engineering = ["py.typed"]
 
 
 # ---------------------------------------------------------------------------

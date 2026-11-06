@@ -43,6 +43,18 @@ def test_normal_ci_excludes_real_models():
     assert "MultimodalRAGPipeline" in workflow
     for version in ("3.11", "3.12", "3.13"):
         assert version in workflow
+    assert '"feature/**"' in workflow
+
+
+def test_core_dependencies_use_fixed_pillow_range():
+    data = tomllib.loads((ROOT / "pyproject.toml").read_text())
+    assert "pillow>=13,<14" in data["project"]["dependencies"]
+
+
+def test_py_typed_marker_is_packaged():
+    data = tomllib.loads((ROOT / "pyproject.toml").read_text())
+    assert (ROOT / "src/vlm_engineering/py.typed").is_file()
+    assert data["tool"]["setuptools"]["package-data"]["vlm_engineering"] == ["py.typed"]
 
 
 def test_docker_excludes_local_weights():
