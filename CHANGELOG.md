@@ -8,7 +8,21 @@ Research Profile: https://www.researchgate.net/profile/Ghanmi-Helmi
 
 # Changelog
 
-## 0.3.1 — Unreleased: Multimodal retrieval / RAG
+## 0.3.2 — 2026-11-06: Reliability and security fixes
+
+- Fix `TextChunker` so every emitted chunk respects `max_chars`, including an
+  oversized paragraph after a non-empty chunk, and recognize CRLF paragraph
+  boundaries; add regression tests for the budget contract.
+- Raise Pillow to `>=13,<14` to clear 39 known CVEs flagged by `pip-audit`.
+- Run CI on `feature/**` and `docs/**` branches, matching the repository's
+  branch naming.
+- Ship a PEP 561 `py.typed` marker and package it in wheels/sdists.
+- Guard `python -m vlm_engineering` behind `__main__` and add subprocess tests.
+- Replace the duplicate interactive-architecture page with a redirect to the
+  Pages landing page; remove the tracked editor swap file.
+- Add `make bootstrap` for a reproducible local virtual environment.
+
+## 0.3.1 — Released: Multimodal retrieval / RAG
 
 - Harden Qwen embedding/reranking adapters; preserve old names as aliases.
 - Add 2B/8B/custom/local selection, batch size 1, dimensions, output validation,
@@ -26,17 +40,6 @@ Research Profile: https://www.researchgate.net/profile/Ghanmi-Helmi
 - Add Docker exclusions/config mount and correct incomplete contributor guidance.
 - Compatibility: bare retrieval image paths now require explicit image objects;
   local corrupt images, unsupported modalities, malformed vectors and scores fail.
-- Fix `TextChunker` so every emitted chunk respects `max_chars`, including an
-  oversized paragraph after a non-empty chunk, and recognize CRLF paragraph
-  boundaries; add regression tests for the budget contract.
-- Raise Pillow to `>=13,<14` to clear 39 known CVEs flagged by `pip-audit`.
-- Run CI on `feature/**` and `docs/**` branches, matching the repository's
-  branch naming.
-- Ship a PEP 561 `py.typed` marker and package it in wheels/sdists.
-- Guard `python -m vlm_engineering` behind `__main__` and add subprocess tests.
-- Replace the duplicate interactive-architecture page with a redirect to the
-  Pages landing page; remove the tracked editor swap file.
-- Add `make bootstrap` for a reproducible local virtual environment.
 
 ## Historical main changes — Configurable Qwen3-VL model selection
 
