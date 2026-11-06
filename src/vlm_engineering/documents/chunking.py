@@ -26,31 +26,46 @@ class TextChunker:
         self.overlap_chars = overlap_chars
 
     def split(self, text: str) -> list[str]:
-        paragraphs = [p.strip() for p in text.split("\n\n") if p.strip()]
+        normalized = text.replace("\r\n", "\n").replace("\r", "\n")
+        paragraphs = [p.strip() for p in normalized.split("\n\n") if p.strip()]
         if not paragraphs:
             return []
         chunks: list[str] = []
         current = ""
         for paragraph in paragraphs:
-            candidate = paragraph if not current else f"{current}\n\n{paragraph}"
-            if len(candidate) <= self.max_chars:
-                current = candidate
-                continue
-            if current:
-                chunks.append(current)
-                prefix = current[-self.overlap_chars :] if self.overlap_chars else ""
-                current = f"{prefix}\n\n{paragraph}".strip() if prefix else paragraph
+            if not current:
+                current = paragraph
             else:
-                # Hard fallback for a single oversized paragraph while guaranteeing progress.
-                start = 0
-                step = self.max_chars - self.overlap_chars
-                while start < len(paragraph):
-                    chunks.append(paragraph[start : start + self.max_chars])
-                    start += step
-                current = ""
+                candidate = f"{current}\n\n{paragraph}"
+                if len(candidate) <= self.max_chars:
+                    current = candidate
+                    continue
+
+                chunks.append(current)
+                current = self._next_chunk(current, paragraph)
+
+            # A paragraph can be larger than the whole budget; keep slicing it
+            # so every emitted chunk satisfies the max_chars contract.
+            step = self.max_chars - self.overlap_chars
+            while len(current) > self.max_chars:
+                chunks.append(current[: self.max_chars])
+                current = current[step:]
         if current:
             chunks.append(current)
         return chunks
+
+    def _next_chunk(self, previous: str, paragraph: str) -> str:
+        """Start a chunk with the largest overlap that keeps the paragraph intact."""
+        if not self.overlap_chars:
+            return paragraph
+        if len(paragraph) >= self.max_chars:
+            # The paragraph must be hard-split; prepend the configured overlap.
+            return f"{previous[-self.overlap_chars :]}\n\n{paragraph}"
+        room = self.max_chars - len(paragraph) - 2
+        if room <= 0:
+            return paragraph
+        prefix = previous[-min(self.overlap_chars, room) :]
+        return f"{prefix}\n\n{paragraph}"
 
 
 class VisualChunkBuilder:

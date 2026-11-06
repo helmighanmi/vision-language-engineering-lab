@@ -53,6 +53,31 @@ def test_text_chunker_preserves_small_paragraphs_together() -> None:
     assert chunks == ["alpha\n\nbeta\n\ngamma"]
 
 
+def test_text_chunker_respects_budget_for_oversized_paragraph_after_small_one() -> None:
+    for overlap in (0, 2, 20):
+        chunks = TextChunker(max_chars=100, overlap_chars=overlap).split("A" * 50 + "\n\n" + "B" * 250)
+        assert chunks
+        assert all(len(chunk) <= 100 for chunk in chunks)
+        joined = "\n".join(chunks)
+        assert joined.count("A") >= 50
+        assert joined.count("B") >= 250
+
+
+def test_text_chunker_handles_crlf_paragraph_boundaries() -> None:
+    chunks = TextChunker(max_chars=50, overlap_chars=0).split("A" * 40 + "\r\n\r\n" + "B" * 40)
+    assert chunks == ["A" * 40, "B" * 40]
+
+
+def test_text_chunker_budget_holds_across_paragraph_sizes() -> None:
+    sizes = (1, 49, 98, 99, 100, 101, 250)
+    for overlap in (0, 10, 40):
+        for size in sizes:
+            text = "A" * 50 + "\n\n" + "B" * size
+            chunks = TextChunker(max_chars=100, overlap_chars=overlap).split(text)
+            assert chunks
+            assert all(len(chunk) <= 100 for chunk in chunks)
+
+
 def test_fusion_preserves_native_and_visual_evidence() -> None:
     native = NativePageContent(
         "doc-1",
