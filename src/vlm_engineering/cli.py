@@ -13,6 +13,7 @@ import json
 import sys
 from dataclasses import asdict
 from pathlib import Path
+from typing import Any
 
 from .documents.chunking import VisualChunkBuilder
 from .documents.schemas import NativePageContent
@@ -30,6 +31,13 @@ from .qwen.registry import (
 )
 from .retrieval import QwenVLEmbedder, QwenVLReranker
 from .runtime_config import load_runtime_config
+
+try:  # pragma: no cover - optional dependency
+    from .ingestion.pipeline import IngestionPipeline
+    from .vectorstore.memory import MemoryVectorStore
+except ImportError:  # pragma: no cover - optional dependency
+    IngestionPipeline = None  # type: ignore
+    MemoryVectorStore = None  # type: ignore
 
 
 def _build_qwen(args: argparse.Namespace) -> QwenVLModel:
@@ -331,7 +339,155 @@ def build_parser() -> argparse.ArgumentParser:
     validate.add_argument("path")
     validate.set_defaults(func=cmd_validate_config)
 
+    ingest = sub.add_parser(
+        "ingest",
+        help="Ingest images into VisualChunk objects (JSONL output).",
+    )
+    ingest.add_argument("images", nargs="+", help="Image files or a directory of images.")
+    ingest.add_argument("--document-id", default="ingested")
+    ingest.add_argument("--source-file", default="images")
+    ingest.add_argument("--output", type=Path, default=Path("output/chunks.jsonl"))
+    ingest.add_argument("--ocr", action="store_true", help="Run OCR on each image.")
+    ingest.add_argument("--no-vlm", action="store_true", help="Skip VLM analysis (native text only).")
+    add_model_args(ingest)
+    ingest.set_defaults(func=cmd_ingest)
+
+    index = sub.add_parser(
+        "index",
+        help="Index VisualChunk JSONL into a vector store.",
+    )
+    index.add_argument("chunks", help="JSONL file of VisualChunk objects.")
+    index.add_argument(
+        "--store",
+        choices=("memory", "sqlite-vec", "qdrant"),
+        default="memory",
+        help="Vector store backend (sqlite-vec/qdrant require [stores]).",
+    )
+    index.add_argument("--output", type=Path, default=Path("output/index"))
+    index.add_argument(
+        "--embed-model-size",
+        choices=("2b", "8b"),
+        default="2b",
+        help="Embedding model size.",
+    )
+    index.add_argument(
+        "--embed-model-path",
+        help="Local embedding model directory.",
+    )
+    add_retrieval_args(index)
+    index.set_defaults(func=cmd_index)
+
     return parser
+
+
+def cmd_ingest(args: argparse.Namespace) -> int:
+    """Ingest images into VisualChunk JSONL."""
+    if IngestionPipeline is None:
+        raise ImportError(
+            "ingest requires the [ingest] extra: pip install -e '.[ingest]'"
+        )
+    model = _build_qwen(args)
+    image_paths = []
+    for entry in args.images:
+        path = Path(entry)
+        if path.is_dir():
+            image_paths.extend(
+                sorted(
+                    p
+                    for p in path.iterdir()
+                    if p.is_file() and p.suffix.lower() in {".png", ".jpg", ".jpeg", ".webp", ".bmp", ".tiff"}
+                )
+            )
+        else:
+            image_paths.append(path)
+
+    if args.no_vlm:
+        class NullGenerator:
+            def generate(self, _image, _prompt, *, max_new_tokens: int = 512) -> str:
+                return (
+                    '{"page_type":"mixed","title":"","summary":"","entities":[],'
+                    '"relations":[],"important_text":[],"uncertainties":[]}'
+                )
+
+        generator: Any = NullGenerator()
+    else:
+        generator = model
+
+    pipeline = IngestionPipeline(
+        generator,
+        document_id=args.document_id,
+        source_file=args.source_file,
+    )
+    results = pipeline.ingest_images(image_paths)
+
+    args.output.parent.mkdir(parents=True, exist_ok=True)
+    with args.output.open("w", encoding="utf-8") as handle:
+        for result in results:
+            for chunk in result.chunks:
+                handle.write(json.dumps(chunk.to_dict(), ensure_ascii=False) + "\n")
+            if result.errors:
+                print(f"# errors for {result.source}: {'; '.join(result.errors)}", file=sys.stderr)
+
+    print(args.output)
+    return 0
+
+
+def cmd_index(args: argparse.Namespace) -> int:
+    """Index VisualChunk JSONL into a vector store."""
+    if MemoryVectorStore is None:
+        raise ImportError(
+            "index requires vector store support: pip install -e '.[stores]'"
+        )
+    embedder = QwenVLEmbedder(
+        **_retrieval_options(args),
+        model_path=args.embed_model_path,
+        model_size=args.embed_model_size,
+    )
+
+    store: Any = MemoryVectorStore()
+    chunks: list[Any] = []
+    with Path(args.chunks).open(encoding="utf-8") as handle:
+        for line in handle:
+            line = line.strip()
+            if not line:
+                continue
+            import json as _json
+
+            data = _json.loads(line)
+            chunks.append(data)
+
+    # Embed chunks using their fused text.
+    texts = [chunk.get("text", "") for chunk in chunks]
+    embeddings = embedder.encode([{"text": text} for text in texts])
+    ids = [chunk.get("chunk_id", f"id-{i}") for i, chunk in enumerate(chunks)]
+    store.add(embeddings, chunks, ids=ids)
+
+    args.output.parent.mkdir(parents=True, exist_ok=True)
+    persistent_store: Any = None
+    if args.store == "sqlite-vec":
+        try:
+            from .vectorstore.sqlite_vec import SqliteVecVectorStore
+        except ImportError as exc:
+            raise ImportError(
+                "sqlite-vec store requires the [stores] extra"
+            ) from exc
+        persistent_store = SqliteVecVectorStore(args.output)
+        persistent_store.add(embeddings, chunks, ids=ids)
+        persistent_store.close()
+    elif args.store == "qdrant":
+        try:
+            from .vectorstore.qdrant import QdrantVectorStore
+        except ImportError as exc:
+            raise ImportError(
+                "qdrant store requires the [stores] extra"
+            ) from exc
+        persistent_store = QdrantVectorStore()
+        persistent_store.add(embeddings, chunks, ids=ids)
+
+    target_store: Any = persistent_store if persistent_store is not None else store
+    target_store.persist(args.output)
+    print(f"indexed {len(chunks)} chunks -> {args.output}")
+    return 0
 
 
 def main(argv: list[str] | None = None) -> int:
