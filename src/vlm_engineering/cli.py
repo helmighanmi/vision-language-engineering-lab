@@ -17,7 +17,8 @@ from pathlib import Path
 from .documents.chunking import VisualChunkBuilder
 from .documents.schemas import NativePageContent
 from .documents.visual_analysis import analyze_visual_document
-from .exceptions import VLMEngineeringError
+from .evaluation import evaluate, load_chunks, load_evaluation_cases
+from .exceptions import InputValidationError, VLMEngineeringError
 from .inputs import normalize_input
 from .operational import backend_errors
 from .qwen.downloader import download_model_snapshot
@@ -28,7 +29,8 @@ from .qwen.registry import (
     default_model_directory,
     resolve_qwen_model_id,
 )
-from .retrieval import QwenVLEmbedder, QwenVLReranker
+from .retrieval import InMemoryVectorIndex, QwenVLEmbedder, QwenVLReranker
+from .retrieval.multimodal_rag import chunk_input
 from .runtime_config import load_runtime_config
 
 
@@ -205,6 +207,42 @@ def cmd_validate_config(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_evaluate(args: argparse.Namespace) -> int:
+    """Evaluate retrieval quality against labelled chunk IDs."""
+    if not args.k or any(type(value) is not int or value <= 0 for value in args.k):
+        raise InputValidationError("--k values must be positive integers.")
+    k_values = tuple(sorted(set(args.k)))
+
+    cases = load_evaluation_cases(args.cases)
+    chunks = load_chunks(args.chunks)
+    if not chunks:
+        raise InputValidationError("No chunks found; provide at least one chunk to index.")
+
+    embedder = QwenVLEmbedder(
+        **_retrieval_options(args),
+        dimensions=args.dimensions,
+    )
+    index = InMemoryVectorIndex()
+    index.add(
+        embedder.encode([chunk_input(chunk) for chunk in chunks], prompt=args.prompt),
+        chunks,
+    )
+    max_k = max(k_values)
+
+    def retrieve(case):
+        query = normalize_input(case.retrieval_input())
+        vector = embedder.encode([query], prompt=args.prompt)[0]
+        return [result.item for result in index.search(vector, top_k=max_k)]
+
+    report = evaluate(retrieve, cases, k_values=k_values)
+    if args.output:
+        path = report.to_json(args.output)
+        print(path)
+    else:
+        print(json.dumps(report.to_dict(), indent=2, ensure_ascii=False, allow_nan=False))
+    return 0
+
+
 def add_retrieval_args(parser: argparse.ArgumentParser) -> None:
     group = parser.add_mutually_exclusive_group()
     group.add_argument("--model-size", choices=("2b", "8b"))
@@ -330,6 +368,24 @@ def build_parser() -> argparse.ArgumentParser:
     validate = sub.add_parser("validate-config", help="Validate a YAML profile without loading models.")
     validate.add_argument("path")
     validate.set_defaults(func=cmd_validate_config)
+
+    evaluate_parser = sub.add_parser(
+        "evaluate",
+        help="Evaluate retrieval quality (Recall@K, nDCG, MRR) on labelled JSONL cases.",
+    )
+    evaluate_parser.add_argument("--cases", required=True, help="JSONL/JSON evaluation cases.")
+    evaluate_parser.add_argument("--chunks", required=True, help="JSONL/JSON indexed chunks.")
+    evaluate_parser.add_argument(
+        "--k",
+        nargs="+",
+        type=int,
+        default=[1, 3, 5],
+        help="Cutoff values; defaults to 1 3 5.",
+    )
+    evaluate_parser.add_argument("--output", help="Write the JSON report to this path.")
+    evaluate_parser.add_argument("--dimensions", type=int)
+    add_retrieval_args(evaluate_parser)
+    evaluate_parser.set_defaults(func=cmd_evaluate)
 
     return parser
 
