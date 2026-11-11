@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 
 from .fusion import fuse_native_and_visual
 from .schemas import NativePageContent, VisualAnalysis, VisualChunk
@@ -78,12 +79,33 @@ class VisualChunkBuilder:
         *,
         parent_context: str = "",
     ) -> VisualChunk:
+        """Build a traceable chunk.
+
+        ``chunk_id`` stays stable for the same document/page/image so that
+        re-analysis can replace a chunk instead of duplicating it. A separate
+        ``content_hash`` covers all fused evidence, allowing callers to detect
+        changed text, entities or relations and invalidate caches explicitly.
+        """
         text = fuse_native_and_visual(native, visual)
-        digest = hashlib.sha256(
-            f"{native.document_id}:{native.page}:{native.image_ref}:{visual.summary}".encode()
+        identity = hashlib.sha256(
+            f"{native.document_id}:{native.page}:{native.image_ref}".encode()
         ).hexdigest()[:16]
+        content_hash = hashlib.sha256(
+            json.dumps(
+                {
+                    "native": {
+                        "title": native.title,
+                        "text": native.native_text,
+                        "image_ref": native.image_ref,
+                    },
+                    "visual": visual.to_dict(),
+                },
+                sort_keys=True,
+                ensure_ascii=False,
+            ).encode()
+        ).hexdigest()
         return VisualChunk(
-            chunk_id=f"{native.document_id}-p{native.page:04d}-{digest}",
+            chunk_id=f"{native.document_id}-p{native.page:04d}-{identity}",
             document_id=native.document_id,
             source_file=native.source_file,
             page=native.page,
@@ -94,5 +116,8 @@ class VisualChunkBuilder:
             parent_context=parent_context,
             entities=visual.entities,
             relations=visual.relations,
-            metadata={"has_visual_evidence": bool(native.image_ref)},
+            metadata={
+                "has_visual_evidence": bool(native.image_ref),
+                "content_hash": content_hash,
+            },
         )

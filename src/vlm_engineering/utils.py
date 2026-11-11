@@ -25,16 +25,25 @@ def to_image_reference(value: str | Path) -> str:
 
 
 def extract_json_object(text: str) -> dict[str, Any]:
-    """Extract the first JSON object from a model response."""
-    stripped = text.strip()
-    if stripped.startswith("```"):
-        stripped = stripped.removeprefix("```json").removeprefix("```")
-        stripped = stripped.rsplit("```", 1)[0].strip()
-    start = stripped.find("{")
-    end = stripped.rfind("}")
-    if start < 0 or end <= start:
+    """Extract the first complete JSON object from a model response.
+
+    Model responses often wrap JSON in Markdown fences, add prose before or
+    after it, or emit several objects. Scanning for a parseable object with
+    ``JSONDecoder.raw_decode`` handles all of those cases without relying on a
+    brittle first-brace/last-brace slice.
+    """
+    if not isinstance(text, str) or not text.strip():
         raise ValueError("No JSON object found in model output.")
-    parsed = json.loads(stripped[start : end + 1])
-    if not isinstance(parsed, dict):
-        raise ValueError("Expected a JSON object.")
-    return parsed
+
+    decoder = json.JSONDecoder()
+    for start, character in enumerate(text):
+        if character != "{":
+            continue
+        try:
+            parsed, _end = decoder.raw_decode(text[start:])
+        except json.JSONDecodeError:
+            continue
+        if isinstance(parsed, dict):
+            return parsed
+
+    raise ValueError("No JSON object found in model output.")
