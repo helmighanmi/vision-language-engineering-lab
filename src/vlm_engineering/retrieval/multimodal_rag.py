@@ -13,6 +13,7 @@ from typing import Protocol, Sequence
 
 import numpy as np
 
+from ..config import MAX_GENERATION_IMAGES
 from ..documents.schemas import VisualChunk
 from ..exceptions import InputValidationError
 from ..inputs import MultimodalInput, nonempty_string, normalize_input, positive_int, validate_image
@@ -103,6 +104,34 @@ class MultimodalRAGPipeline:
             chunks = [chunks[int(i)] for i in order]
         return chunks[:limit]
 
+    def _select_evidence(
+        self,
+        chunks: Sequence[VisualChunk],
+        *,
+        budget: int,
+    ) -> tuple[list[tuple[VisualChunk, str | None]], dict[str, int]]:
+        """Keep ranked text evidence and at most ``budget`` distinct images.
+
+        Text-only chunks never consume the image budget. Image chunks that would
+        exceed the generator limit are skipped rather than causing generation to
+        fail after retrieval.
+        """
+        selected: list[tuple[VisualChunk, str | None]] = []
+        positions: dict[str, int] = {}
+        for chunk in chunks:
+            if not chunk.image_ref:
+                selected.append((chunk, None))
+                continue
+            image = validate_image(chunk.image_ref)
+            if image in positions:
+                selected.append((chunk, image))
+                continue
+            if len(positions) >= budget:
+                continue
+            positions[image] = len(positions) + 1
+            selected.append((chunk, image))
+        return selected, positions
+
     def answer(
         self,
         question: str,
@@ -121,22 +150,25 @@ class MultimodalRAGPipeline:
         chunks = self.retrieve(query, top_k=top_k, candidate_k=candidate_k)
         if not chunks:
             return RAGAnswer("No relevant evidence found.", ())
-        evidence_images = list(dict.fromkeys(validate_image(c.image_ref) for c in chunks if c.image_ref))
-        if not evidence_images:
-            raise InputValidationError(
-                "Final visual generation requires an original evidence image; none was retrieved."
-            )
-        images = ([query["image"]] if "image" in query else []) + evidence_images
+
         offset = int("image" in query)
+        selected, positions = self._select_evidence(
+            chunks, budget=MAX_GENERATION_IMAGES - offset
+        )
+        if not selected:
+            return RAGAnswer("No relevant evidence found.", ())
+        evidence_images = list(positions)
+        images = ([query["image"]] if "image" in query else []) + evidence_images
+
+        # Re-number images after the query image so prompt references match the
+        # actual attachment order sent to the generator.
+        numbered = {image: index + 1 + offset for index, image in enumerate(positions)}
         evidence = "\n\n".join(
-            f"SOURCE: {c.source_file}, page {c.page}; document {c.document_id}; chunk {c.chunk_id}\n"
-            + (
-                f"IMAGE: {evidence_images.index(validate_image(c.image_ref)) + 1 + offset}\n"
-                if c.image_ref
-                else ""
-            )
-            + c.text
-            for c in chunks
+            f"SOURCE: {chunk.source_file}, page {chunk.page}; "
+            f"document {chunk.document_id}; chunk {chunk.chunk_id}\n"
+            + (f"IMAGE: {numbered[image]}\n" if image else "")
+            + chunk.text
+            for chunk, image in selected
         )
         prompt = (
             "Answer only from the provided evidence. Cite source file and page. "
@@ -145,5 +177,16 @@ class MultimodalRAGPipeline:
             + ("Image 1 is the query image, not a retrieved source. " if offset else "")
             + f"\n\nQUESTION:\n{question}\n\nEVIDENCE:\n{evidence}"
         )
-        answer = self.generator.generate_images(images, prompt, max_new_tokens=tokens)
-        return RAGAnswer(answer, tuple(chunks))
+
+        if images:
+            answer = self.generator.generate_images(images, prompt, max_new_tokens=tokens)
+        else:
+            text_generator = getattr(self.generator, "generate_text", None)
+            if text_generator is None:
+                raise InputValidationError(
+                    "Generator does not support text-only answers; provide image evidence "
+                    "or a generator implementing generate_text()."
+                )
+            answer = text_generator(prompt, max_new_tokens=tokens)
+
+        return RAGAnswer(answer, tuple(chunk for chunk, _ in selected))

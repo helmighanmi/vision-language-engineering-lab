@@ -8,10 +8,12 @@
 
 from __future__ import annotations
 
+import gc
 from pathlib import Path
 from typing import Any, Sequence
 from urllib.parse import unquote, urlparse
 
+from ..config import MAX_GENERATION_IMAGES
 from ..exceptions import InputValidationError, ModelLoadError, OptionalDependencyError
 from ..inputs import validate_image
 from ..operational import backend_errors
@@ -188,72 +190,39 @@ class QwenVLModel:
         }
 
         with backend_errors(loading=True):
-            self._processor = AutoProcessor.from_pretrained(
+            processor = AutoProcessor.from_pretrained(
                 self.model_source,
                 **common,
             )
 
-            self._model = AutoModelForImageTextToText.from_pretrained(
+            model = AutoModelForImageTextToText.from_pretrained(
                 self.model_source,
                 device_map=self.device_map,
                 dtype=self.dtype,
                 **common,
             )
 
-        if self._model is None or self._processor is None:
+        if model is None or processor is None:
             raise ModelLoadError(f"Unable to load model from {self.model_source!r}.")
 
+        self._processor = processor
+        self._model = model
         return self._model, self._processor
 
-    def generate(
-        self,
-        image: str | Path,
-        prompt: str,
-        *,
-        system_prompt: str | None = None,
-        max_new_tokens: int = 512,
-    ) -> str:
-        """Generate a text response grounded in one image (legacy API)."""
-        return self.generate_images(
-            [image], prompt, system_prompt=system_prompt, max_new_tokens=max_new_tokens
-        )
-
-    def generate_images(
-        self,
-        images: Sequence[str | Path],
-        prompt: str,
-        *,
-        system_prompt: str | None = None,
-        max_new_tokens: int = 512,
-    ) -> str:
-        """Generate from 1-16 images in attachment order, validated before model load."""
+    @staticmethod
+    def _validate_generation(prompt: str, max_new_tokens: int) -> None:
         if not isinstance(prompt, str) or not prompt.strip():
             raise InputValidationError("prompt must not be empty.")
         if type(max_new_tokens) is not int or max_new_tokens <= 0:
             raise InputValidationError("max_new_tokens must be greater than zero.")
-        if isinstance(images, (str, bytes)) or not isinstance(images, Sequence) or not 1 <= len(images) <= 16:
-            raise InputValidationError("images must contain between 1 and 16 image references.")
-        sources = []
-        for image in images:
-            # Preserve the established generator HTTP URL API. Retrieval inputs
-            # are local-only; remote decoding remains the generator backend's job.
-            source = _normalize_image_source(image)
-            if not source.startswith(("http://", "https://")):
-                source = validate_image(source)
-            sources.append(source)
+
+    def _generate_messages(
+        self,
+        messages: list[dict[str, Any]],
+        *,
+        max_new_tokens: int,
+    ) -> str:
         model, processor = self._ensure_loaded()
-        messages: list[dict[str, Any]] = []
-        if system_prompt:
-            messages.append({"role": "system", "content": [{"type": "text", "text": system_prompt}]})
-        messages.append(
-            {
-                "role": "user",
-                "content": [
-                    *({"type": "image", "url": source} for source in sources),
-                    {"type": "text", "text": prompt},
-                ],
-            }
-        )
         with backend_errors():
             import torch
 
@@ -268,3 +237,91 @@ class QwenVLModel:
                 outputs = model.generate(**inputs, max_new_tokens=max_new_tokens)
                 generated = outputs[0][inputs["input_ids"].shape[-1] :]
                 return processor.decode(generated, skip_special_tokens=True).strip()
+
+    def generate(
+        self,
+        image: str | Path,
+        prompt: str,
+        *,
+        system_prompt: str | None = None,
+        max_new_tokens: int = 512,
+    ) -> str:
+        """Generate a text response grounded in one image (legacy API)."""
+        return self.generate_images(
+            [image], prompt, system_prompt=system_prompt, max_new_tokens=max_new_tokens
+        )
+
+    def generate_text(
+        self,
+        prompt: str,
+        *,
+        system_prompt: str | None = None,
+        max_new_tokens: int = 512,
+    ) -> str:
+        """Generate a text-only response without loading or validating an image."""
+        self._validate_generation(prompt, max_new_tokens)
+        messages: list[dict[str, Any]] = []
+        if system_prompt:
+            messages.append({"role": "system", "content": [{"type": "text", "text": system_prompt}]})
+        messages.append({"role": "user", "content": [{"type": "text", "text": prompt}]})
+        return self._generate_messages(messages, max_new_tokens=max_new_tokens)
+
+    def generate_images(
+        self,
+        images: Sequence[str | Path],
+        prompt: str,
+        *,
+        system_prompt: str | None = None,
+        max_new_tokens: int = 512,
+    ) -> str:
+        """Generate from 1-16 images in attachment order, validated before model load."""
+        self._validate_generation(prompt, max_new_tokens)
+        if (
+            isinstance(images, (str, bytes))
+            or not isinstance(images, Sequence)
+            or not 1 <= len(images) <= MAX_GENERATION_IMAGES
+        ):
+            raise InputValidationError(
+                f"images must contain between 1 and {MAX_GENERATION_IMAGES} image references."
+            )
+        sources = []
+        for image in images:
+            # Preserve the established generator HTTP URL API. Retrieval inputs
+            # are local-only; remote decoding remains the generator backend's job.
+            source = _normalize_image_source(image)
+            if not source.startswith(("http://", "https://")):
+                source = validate_image(source)
+            sources.append(source)
+        messages: list[dict[str, Any]] = []
+        if system_prompt:
+            messages.append({"role": "system", "content": [{"type": "text", "text": system_prompt}]})
+        messages.append(
+            {
+                "role": "user",
+                "content": [
+                    *({"type": "image", "url": source} for source in sources),
+                    {"type": "text", "text": prompt},
+                ],
+            }
+        )
+        return self._generate_messages(messages, max_new_tokens=max_new_tokens)
+
+    def unload(self, *, empty_cuda_cache: bool = True) -> None:
+        """Release wrapper references and optionally clear the CUDA allocator cache.
+
+        External references to the model or processor, framework caches and
+        backend offload state may keep memory alive; this method cannot force
+        those to be released.
+        """
+        self._model = None
+        self._processor = None
+        gc.collect()
+        if not empty_cuda_cache:
+            return
+        try:
+            import torch
+        except ImportError:
+            return
+        cuda = getattr(torch, "cuda", None)
+        if cuda is not None and cuda.is_available():
+            cuda.empty_cache()

@@ -139,11 +139,67 @@ def test_query_image_forwarded_and_repeated_evidence_deduplicated(chunks):
     assert "IMAGE: 2" in generator.calls[0][1]
 
 
-def test_visual_evidence_required_and_query_image_is_not_evidence(chunks):
+def test_text_only_evidence_falls_back_to_text_generation(chunks):
+    class TextGenerator(Generator):
+        def __init__(self):
+            super().__init__()
+            self.text_calls = []
+
+        def generate_text(self, prompt, **kwargs):
+            self.text_calls.append((prompt, kwargs))
+            return "text-only answer"
+
+    generator = TextGenerator()
+    pipe = MultimodalRAGPipeline(Embedder(), generator)
+    pipe.index_chunks([replace(chunks[0], image_ref="")])
+    answer = pipe.answer("cache")
+    assert answer.answer == "text-only answer"
+    assert [chunk.chunk_id for chunk in answer.chunks] == ["0"]
+    assert generator.text_calls[0][1] == {"max_new_tokens": 256}
+    assert "cache" in generator.text_calls[0][0]
+
+
+def test_text_only_evidence_requires_capable_generator(chunks):
     pipe = MultimodalRAGPipeline(Embedder(), Generator())
     pipe.index_chunks([replace(chunks[0], image_ref="")])
-    with pytest.raises(ValueError, match="requires an original evidence image"):
-        pipe.answer("cache", query_image=chunks[1].image_ref)
+    with pytest.raises(ValueError, match="does not support text-only"):
+        pipe.answer("cache")
+
+
+def test_image_budget_trims_evidence_instead_of_failing(tmp_path):
+    chunks = []
+    for index in range(20):
+        path = tmp_path / f"page{index}.png"
+        Image.new("RGB", (8, 8), "blue").save(path)
+        chunks.append(
+            VisualChunk(
+                str(index),
+                "document",
+                "source.pdf",
+                index + 1,
+                "diagram",
+                "title",
+                "cache",
+                str(path),
+            )
+        )
+
+    generator = Generator()
+    pipe = MultimodalRAGPipeline(Embedder(), generator, top_k=20, candidate_k=20)
+    pipe.index_chunks(chunks)
+    answer = pipe.answer("cache")
+    images, _prompt, _kwargs = generator.calls[0]
+    assert len(images) == 16
+    assert [chunk.chunk_id for chunk in answer.chunks] == [str(index) for index in range(16)]
+
+    query_generator = Generator()
+    query_pipe = MultimodalRAGPipeline(Embedder(), query_generator, top_k=20, candidate_k=20)
+    query_pipe.index_chunks(chunks)
+    query_pipe.answer("cache", query_image=chunks[-1].image_ref)
+    query_images, query_prompt, _kwargs = query_generator.calls[0]
+    assert len(query_images) == 16
+    assert query_images[0] == chunks[-1].image_ref
+    assert "IMAGE: 2" in query_prompt
 
 
 def test_deleted_evidence_image_fails(chunks):
