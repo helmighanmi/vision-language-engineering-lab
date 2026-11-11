@@ -110,6 +110,23 @@ qwen-retrieval = [
 ]
 config = ["PyYAML>=6.0.2,<7"]
 
+# Persistent vector stores: sqlite-vec (single-file) and Qdrant (remote).
+stores = [
+  "sqlite-vec>=0.1.6,<1",
+  "qdrant-client>=1.13,<2",
+]
+
+# Document ingestion: PDF parsing and page rendering.
+ingest = [
+  "pypdf>=5.3,<6",
+  "pdf2image>=1.17,<2",
+]
+
+# OpenAI-compatible HTTP providers (vLLM, LM Studio, Ollama, etc.).
+openai-compatible = [
+  "httpx>=0.28,<1",
+]
+
 # Interactive notebook environment.
 notebooks = [
   "jupyterlab>=4.6.3,<5",

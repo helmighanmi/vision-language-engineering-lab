@@ -17,6 +17,9 @@ DEFAULT_QWEN_RERANKER_MODEL = "Qwen/Qwen3-VL-Reranker-2B"
 DEFAULT_CLIP_MODEL = "openai/clip-vit-base-patch32"
 DEFAULT_TEXT_EMBEDDER = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
 
+# Qwen3-VL processors accept a bounded number of image attachments per request.
+MAX_GENERATION_IMAGES = 16
+
 
 def model_cache_dir() -> Path:
     """Return the configured Hugging Face cache directory."""
