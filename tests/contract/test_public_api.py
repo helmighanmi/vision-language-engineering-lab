@@ -56,6 +56,7 @@ def test_cli_exposes_expected_commands() -> None:
         "embed",
         "rerank",
         "validate-config",
+        "evaluate",
     }
 
 
