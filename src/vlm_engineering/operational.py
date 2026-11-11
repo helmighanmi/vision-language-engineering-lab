@@ -20,10 +20,27 @@ def operational_error(exc: Exception, *, loading: bool = False) -> VLMEngineerin
     name = type(exc).__name__
     hint = None
     if isinstance(exc, ImportError):
+        if "yaml" in message:
+            extra = "config"
+            detail = "PyYAML"
+        elif "sentence_transformers" in message or "sentence-transformers" in message:
+            extra = "retrieval"
+            detail = "sentence-transformers (use qwen-retrieval for multimodal models)"
+        elif any(name in message for name in ("torch", "transformers", "torchvision", "qwen_vl_utils")):
+            extra = "qwen"
+            detail = "torch, torchvision, transformers and qwen-vl-utils"
+        else:
+            extra = None
+            detail = None
+        if extra is None:
+            return OptionalDependencyError(
+                "Missing optional dependency. Install the relevant extra: "
+                "[clip], [retrieval], [qwen], [qwen-retrieval] or [config]. "
+                "Check the chained exception for the missing module."
+            )
         return OptionalDependencyError(
-            'Missing optional dependency. Install "vision-language-engineering-lab[qwen-retrieval]" '
-            "(includes sentence-transformers[image], torchvision and qwen-vl-utils). "
-            "Check the chained exception for the missing module."
+            f'Missing optional dependency. Install "vision-language-engineering-lab[{extra}]" '
+            f"({detail}). Check the chained exception for the missing module."
         )
     if isinstance(exc, MemoryError) or "out of memory" in message or "cannot allocate memory" in message:
         hint = (

@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+from functools import lru_cache
 from pathlib import Path
 from typing import TypeAlias
 from urllib.parse import unquote, urlparse
@@ -19,6 +20,35 @@ from .exceptions import InputValidationError
 
 MultimodalInput: TypeAlias = str | Mapping[str, str]
 IMAGE_FORMATS = frozenset({"PNG", "JPEG", "WEBP", "BMP", "TIFF"})
+
+
+def _decode_and_verify(path_str: str) -> None:
+    """Open, verify and load one image; failures become validation errors."""
+    path = Path(path_str)
+    try:
+        with Image.open(path) as image:
+            if image.format not in IMAGE_FORMATS or getattr(image, "n_frames", 1) != 1:
+                raise InputValidationError(
+                    "Unsupported image format or multiple frames; use a single PNG/JPEG/WEBP/BMP/TIFF."
+                )
+            image.verify()
+        with Image.open(path) as image:
+            image.load()
+    except (UnidentifiedImageError, OSError, SyntaxError, Image.DecompressionBombError) as exc:
+        raise InputValidationError(
+            f"Unsupported or corrupt image: {path}. Re-export as PNG or JPEG."
+        ) from exc
+
+
+@lru_cache(maxsize=2048)
+def _validate_cached(path_str: str, _mtime_ns: int, _size: int, _inode: int) -> None:
+    """Validate an unchanged file once; stat values form the cache key."""
+    _decode_and_verify(path_str)
+
+
+def clear_image_validation_cache() -> None:
+    """Clear cached image validation results (useful in long-lived processes)."""
+    _validate_cached.cache_clear()
 
 
 def positive_int(value: int, name: str) -> None:
@@ -41,6 +71,10 @@ def validate_image(value: str | Path) -> str:
 
     Remote image downloads and animated/multi-frame images are deliberately outside
     the retrieval contract. Materialize them locally before calling this API.
+
+    Full decode results are cached by ``(path, mtime, size, inode)`` so repeated
+    retrieval/reranking over the same evidence does not re-decode every image.
+    Any file change or deletion produces a new key or a ``FileNotFoundError``.
     """
     if not isinstance(value, (str, Path)) or not str(value).strip():
         raise InputValidationError("image must be a non-empty local path.")
@@ -57,19 +91,8 @@ def validate_image(value: str | Path) -> str:
         raise FileNotFoundError(f"Image file not found: {path}")
     if not path.is_file():
         raise InputValidationError(f"Image path is not a file: {path}")
-    try:
-        with Image.open(path) as image:
-            if image.format not in IMAGE_FORMATS or getattr(image, "n_frames", 1) != 1:
-                raise InputValidationError(
-                    "Unsupported image format or multiple frames; use a single PNG/JPEG/WEBP/BMP/TIFF."
-                )
-            image.verify()
-        with Image.open(path) as image:
-            image.load()
-    except (UnidentifiedImageError, OSError, SyntaxError, Image.DecompressionBombError) as exc:
-        raise InputValidationError(
-            f"Unsupported or corrupt image: {path}. Re-export as PNG or JPEG."
-        ) from exc
+    stat = path.stat()
+    _validate_cached(str(path), stat.st_mtime_ns, stat.st_size, stat.st_ino)
     return str(path)
 
 

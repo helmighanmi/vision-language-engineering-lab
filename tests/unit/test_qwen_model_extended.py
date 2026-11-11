@@ -644,6 +644,30 @@ def test_corrupt_generation_image_before_loading(tmp_path, monkeypatch):
         model.generate(path, "question")
 
 
+def test_generate_text_attaches_no_images(tmp_path):
+    processor = FakeProcessor()
+    model = FakeModel()
+    wrapper = QwenVLModel(model=model, processor=processor)
+    result = wrapper.generate_text("Only text evidence", max_new_tokens=7)
+    assert result == "Grounded visual answer."
+    assert processor.messages == [
+        {"role": "user", "content": [{"type": "text", "text": "Only text evidence"}]}
+    ]
+    assert model.generate_kwargs["max_new_tokens"] == 7
+
+
+def test_generate_text_rejects_empty_prompt():
+    with pytest.raises(ValueError, match="prompt must not be empty"):
+        QwenVLModel().generate_text("   ")
+
+
+def test_unload_releases_model_and_processor_references():
+    wrapper = QwenVLModel(model=FakeModel(), processor=FakeProcessor())
+    wrapper.unload()
+    assert wrapper._model is None
+    assert wrapper._processor is None
+
+
 def test_generator_load_programming_error_not_hidden(monkeypatch):
     sentinel = TypeError("internal bug")
 

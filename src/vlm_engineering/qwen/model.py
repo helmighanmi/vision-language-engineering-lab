@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any, Sequence
 from urllib.parse import unquote, urlparse
 
+from ..config import MAX_GENERATION_IMAGES
 from ..exceptions import InputValidationError, ModelLoadError, OptionalDependencyError
 from ..inputs import validate_image
 from ..operational import backend_errors
@@ -189,35 +190,24 @@ class QwenVLModel:
         }
 
         with backend_errors(loading=True):
-            self._processor = AutoProcessor.from_pretrained(
+            processor = AutoProcessor.from_pretrained(
                 self.model_source,
                 **common,
             )
 
-            self._model = AutoModelForImageTextToText.from_pretrained(
+            model = AutoModelForImageTextToText.from_pretrained(
                 self.model_source,
                 device_map=self.device_map,
                 dtype=self.dtype,
                 **common,
             )
 
-        if self._model is None or self._processor is None:
+        if model is None or processor is None:
             raise ModelLoadError(f"Unable to load model from {self.model_source!r}.")
 
+        self._processor = processor
+        self._model = model
         return self._model, self._processor
-
-    def generate(
-        self,
-        image: str | Path,
-        prompt: str,
-        *,
-        system_prompt: str | None = None,
-        max_new_tokens: int = 512,
-    ) -> str:
-        """Generate a text response grounded in one image (legacy API)."""
-        return self.generate_images(
-            [image], prompt, system_prompt=system_prompt, max_new_tokens=max_new_tokens
-        )
 
     @staticmethod
     def _validate_generation(prompt: str, max_new_tokens: int) -> None:
@@ -248,6 +238,19 @@ class QwenVLModel:
                 generated = outputs[0][inputs["input_ids"].shape[-1] :]
                 return processor.decode(generated, skip_special_tokens=True).strip()
 
+    def generate(
+        self,
+        image: str | Path,
+        prompt: str,
+        *,
+        system_prompt: str | None = None,
+        max_new_tokens: int = 512,
+    ) -> str:
+        """Generate a text response grounded in one image (legacy API)."""
+        return self.generate_images(
+            [image], prompt, system_prompt=system_prompt, max_new_tokens=max_new_tokens
+        )
+
     def generate_text(
         self,
         prompt: str,
@@ -273,8 +276,6 @@ class QwenVLModel:
     ) -> str:
         """Generate from 1-16 images in attachment order, validated before model load."""
         self._validate_generation(prompt, max_new_tokens)
-        from ..config import MAX_GENERATION_IMAGES
-
         if (
             isinstance(images, (str, bytes))
             or not isinstance(images, Sequence)
