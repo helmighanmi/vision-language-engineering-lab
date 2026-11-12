@@ -23,7 +23,9 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from ..exceptions import InputValidationError, OptionalDependencyError
+from .concurrency import ConcurrencyLimiter
 from .config import ServiceConfig
+from .policy import resolve_output_path
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from ..runtime_config import RuntimeConfig
@@ -101,6 +103,7 @@ class ServiceRuntime:
         self._provided_stores = dict(stores or {})
         self._built_stores: dict[tuple[str, str | None], Any] = {}
         self._runtime_profile = runtime_profile
+        self.limiter = ConcurrencyLimiter(config.max_concurrency)
 
     # -- Providers ---------------------------------------------------------
 
@@ -219,6 +222,23 @@ class ServiceRuntime:
             if key not in self._built_stores:
                 self._built_stores[key] = build_store(kind, path=path, **options)
             return self._built_stores[key]
+
+    def configured_store(self) -> "VectorStore":
+        """Return the service's default store, resolving sqlite-vec paths safely."""
+        kind = self.config.store
+        if kind == "sqlite-vec":
+            path = resolve_output_path(self.config.store_path, self.config)
+            return self.store(kind, path=path)
+        if kind == "qdrant":
+            return self.store(
+                kind,
+                host=self.config.qdrant_host,
+                port=self.config.qdrant_port,
+                collection=self.config.qdrant_collection,
+                api_key=self.config.qdrant_api_key,
+                https=self.config.qdrant_https,
+            )
+        return self.store(kind)
 
     # -- Lifecycle ---------------------------------------------------------
 

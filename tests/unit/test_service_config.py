@@ -46,6 +46,13 @@ def test_defaults_when_environment_is_empty() -> None:
     assert config.model_id is None
     assert config.model_path is None
     assert config.request_timeout == 120.0
+    assert config.store == "memory"
+    assert config.store_path == "index"
+    assert config.qdrant_host == "localhost"
+    assert config.qdrant_port == 6333
+    assert config.qdrant_collection == "vlm_engineering"
+    assert config.qdrant_api_key is None
+    assert config.qdrant_https is False
 
 
 def test_from_env_reads_every_supported_variable() -> None:
@@ -66,6 +73,13 @@ def test_from_env_reads_every_supported_variable() -> None:
             "VLM_SERVICE_VLM_API_KEY": "provider-secret",
             "VLM_SERVICE_MODEL_SIZE": "8b",
             "VLM_SERVICE_REQUEST_TIMEOUT": "12.5",
+            "VLM_SERVICE_STORE": "SQLITE-VEC",
+            "VLM_SERVICE_STORE_PATH": "indexes/main",
+            "VLM_SERVICE_QDRANT_HOST": "qdrant.internal",
+            "VLM_SERVICE_QDRANT_PORT": "6334",
+            "VLM_SERVICE_QDRANT_COLLECTION": "documents",
+            "VLM_SERVICE_QDRANT_API_KEY": "qdrant-secret",
+            "VLM_SERVICE_QDRANT_HTTPS": "yes",
         }
     )
     assert config.api_key == "gateway-secret"
@@ -83,6 +97,13 @@ def test_from_env_reads_every_supported_variable() -> None:
     assert config.vlm_api_key == "provider-secret"
     assert config.model_size == "8b"
     assert config.request_timeout == 12.5
+    assert config.store == "sqlite-vec"
+    assert config.store_path == "indexes/main"
+    assert config.qdrant_host == "qdrant.internal"
+    assert config.qdrant_port == 6334
+    assert config.qdrant_collection == "documents"
+    assert config.qdrant_api_key == "qdrant-secret"
+    assert config.qdrant_https is True
 
 
 def test_blank_values_are_treated_as_unset() -> None:
@@ -211,6 +232,23 @@ def test_multiple_model_selectors_are_rejected() -> None:
         ServiceConfig.from_env({"VLM_SERVICE_MODEL_SIZE": "2b", "VLM_SERVICE_MODEL_PATH": "/models/q"})
 
 
+def test_invalid_store_configuration_is_rejected() -> None:
+    with pytest.raises(InputValidationError, match="VLM_SERVICE_STORE"):
+        ServiceConfig.from_env({"VLM_SERVICE_STORE": "redis"})
+    with pytest.raises(InputValidationError, match="STORE_PATH"):
+        ServiceConfig.from_env({"VLM_SERVICE_STORE_PATH": "/absolute"})
+    with pytest.raises(InputValidationError, match="STORE_PATH"):
+        ServiceConfig.from_env({"VLM_SERVICE_STORE_PATH": "../escape"})
+    with pytest.raises(InputValidationError, match="QDRANT_PORT"):
+        ServiceConfig.from_env({"VLM_SERVICE_QDRANT_PORT": "70000"})
+    with pytest.raises(InputValidationError, match="QDRANT_HTTPS"):
+        ServiceConfig.from_env({"VLM_SERVICE_QDRANT_HTTPS": "maybe"})
+    with pytest.raises(InputValidationError, match="QDRANT_HOST"):
+        ServiceConfig(qdrant_host="")
+    with pytest.raises(InputValidationError, match="QDRANT_COLLECTION"):
+        ServiceConfig(qdrant_collection="")
+
+
 def test_direct_construction_validates_field_types() -> None:
     with pytest.raises(InputValidationError):
         ServiceConfig(max_concurrency=0)
@@ -233,10 +271,12 @@ def test_secrets_are_hidden_from_repr() -> None:
         vlm_base_url="http://localhost:8000",
         vlm_model="m",
         vlm_api_key="provider-secret",
+        qdrant_api_key="qdrant-secret",
     )
     rendered = repr(config)
     assert "gateway-secret" not in rendered
     assert "provider-secret" not in rendered
+    assert "qdrant-secret" not in rendered
 
 
 def test_empty_secret_is_rejected_when_constructed_directly() -> None:

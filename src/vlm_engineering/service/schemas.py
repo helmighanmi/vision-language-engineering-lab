@@ -11,7 +11,7 @@ from __future__ import annotations
 from importlib.metadata import PackageNotFoundError, version
 from typing import Any, Optional
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 _DISTRIBUTION = "vision-language-engineering-lab"
 
@@ -126,6 +126,12 @@ class EmbedRequest(BaseModel):
             raise ValueError("field must not be empty when provided.")
         return value
 
+    @model_validator(mode="after")
+    def _text_or_image(self) -> "EmbedRequest":
+        if self.text is None and self.image is None:
+            raise ValueError("provide text, image, or both.")
+        return self
+
 
 class EmbedResponse(BaseModel):
     """Response from embed."""
@@ -145,13 +151,20 @@ class RerankRequest(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     query: str
-    documents: list[dict[str, str]]
+    documents: list[dict[str, str]] = Field(..., min_length=1)
     model_size: Optional[str] = Field(default=None, description="Reranker preset: 2b or 8b.")
     model_id: Optional[str] = None
     model_path: Optional[str] = None
     top_k: Optional[int] = Field(default=None, gt=0)
     normalize_scores: bool = False
     prompt: Optional[str] = None
+
+    @field_validator("query")
+    @classmethod
+    def _query_not_empty(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("query must not be empty.")
+        return value
 
 
 class RerankResult(BaseModel):

@@ -15,7 +15,7 @@ from fastapi import FastAPI
 
 from .config import ServiceConfig
 from .errors import register_error_handlers, validation_error_response
-from .routers import health, models
+from .routers import describe, embed, health, models, query, rerank
 from .runtime import ServiceRuntime
 from .schemas import package_version
 
@@ -49,6 +49,10 @@ def create_app(config: ServiceConfig | None = None) -> FastAPI:
     application.state.runtime = ServiceRuntime(service_config)
     application.include_router(health.router)
     application.include_router(models.router)
+    application.include_router(describe.router)
+    application.include_router(embed.router)
+    application.include_router(rerank.router)
+    application.include_router(query.router)
     return application
 
 

@@ -27,6 +27,7 @@ from ..exceptions import (
     OptionalDependencyError,
     VLMEngineeringError,
 )
+from .concurrency import ServiceBusyError
 from .schemas import ErrorResponse
 
 logger = logging.getLogger(__name__)
@@ -65,6 +66,17 @@ async def validation_error_response(
     return _error_response(422, "validation_error", detail)
 
 
+async def busy_error_response(_request: Request, exc: Exception) -> JSONResponse:
+    """Report exhausted capacity with a short retry hint."""
+    response = _error_response(
+        status.HTTP_503_SERVICE_UNAVAILABLE,
+        "service_busy",
+        str(exc),
+    )
+    response.headers["Retry-After"] = "1"
+    return response
+
+
 async def unexpected_error_response(_request: Request, exc: Exception) -> JSONResponse:
     """Log the failure and return a generic 500 without leaking internals."""
     logger.error("Unhandled service error", exc_info=exc)
@@ -88,6 +100,7 @@ def exception_handlers() -> dict[type[Exception], ExceptionHandler]:
         ),
         ImportError: _constant(status.HTTP_503_SERVICE_UNAVAILABLE, "dependency_unavailable"),
         ModelLoadError: _constant(status.HTTP_503_SERVICE_UNAVAILABLE, "model_unavailable"),
+        ServiceBusyError: busy_error_response,
         VLMEngineeringError: _constant(status.HTTP_400_BAD_REQUEST, "request_error"),
         Exception: unexpected_error_response,
     }

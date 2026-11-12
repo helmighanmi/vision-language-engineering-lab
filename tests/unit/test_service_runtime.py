@@ -376,6 +376,67 @@ raise SystemExit(0)
     assert result.returncode == 0, result.stderr
 
 
+# -- Configured store --------------------------------------------------------
+
+def test_configured_store_uses_injected_memory_store() -> None:
+    store = object()
+    runtime = ServiceRuntime(ServiceConfig(), stores={"memory": store})
+    assert runtime.configured_store() is store
+
+
+def test_configured_sqlite_store_resolves_inside_output_root(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import vlm_engineering.service.runtime as runtime_module
+
+    captured: dict[str, object] = {}
+
+    def _fake_build_store(kind: str, *, path: object = None, **options: object) -> object:
+        captured.update(kind=kind, path=path, options=options)
+        return object()
+
+    monkeypatch.setattr(runtime_module, "build_store", _fake_build_store)
+    config = ServiceConfig(store="sqlite-vec", output_root=tmp_path, store_path="indexes/main")
+    ServiceRuntime(config).configured_store()
+    assert captured["kind"] == "sqlite-vec"
+    assert captured["path"] == (tmp_path / "indexes" / "main").resolve()
+
+
+def test_configured_qdrant_store_passes_connection_options(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import vlm_engineering.service.runtime as runtime_module
+
+    captured: dict[str, object] = {}
+
+    def _fake_build_store(kind: str, *, path: object = None, **options: object) -> object:
+        captured.update(kind=kind, options=options)
+        return object()
+
+    monkeypatch.setattr(runtime_module, "build_store", _fake_build_store)
+    config = ServiceConfig(
+        store="qdrant",
+        qdrant_host="qdrant.internal",
+        qdrant_port=6334,
+        qdrant_collection="documents",
+        qdrant_api_key="secret",
+        qdrant_https=True,
+    )
+    ServiceRuntime(config).configured_store()
+    assert captured["kind"] == "qdrant"
+    assert captured["options"] == {
+        "host": "qdrant.internal",
+        "port": 6334,
+        "collection": "documents",
+        "api_key": "secret",
+        "https": True,
+    }
+
+
+def test_runtime_exposes_the_configured_concurrency_limit() -> None:
+    assert ServiceRuntime(ServiceConfig(max_concurrency=3)).limiter.limit == 3
+
+
 # -- Lifecycle ---------------------------------------------------------------
 
 def test_unload_releases_providers_and_is_idempotent() -> None:

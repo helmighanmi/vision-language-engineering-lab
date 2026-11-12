@@ -10,7 +10,9 @@ from __future__ import annotations
 
 import asyncio
 import importlib.metadata
+from pathlib import Path
 
+import numpy as np
 import pytest
 
 from vlm_engineering.exceptions import (
@@ -19,6 +21,8 @@ from vlm_engineering.exceptions import (
     OptionalDependencyError,
     VLMEngineeringError,
 )
+from vlm_engineering.retrieval.in_memory import SearchResult
+from vlm_engineering.service.concurrency import ServiceBusyError
 
 pytest.importorskip("fastapi", reason="the service extra is not installed")
 
@@ -28,6 +32,7 @@ from fastapi.testclient import TestClient  # noqa: E402
 from vlm_engineering.service import create_app  # noqa: E402
 from vlm_engineering.service.app import _validation_error_response  # noqa: E402
 from vlm_engineering.service.config import ServiceConfig  # noqa: E402
+from vlm_engineering.service.routers.query import NO_EVIDENCE_ANSWER  # noqa: E402
 from vlm_engineering.service.runtime import ServiceRuntime  # noqa: E402
 from vlm_engineering.service.schemas import package_version  # noqa: E402
 
@@ -57,7 +62,16 @@ def test_ready_reports_ok(client: TestClient) -> None:
 
 def test_openapi_schema_lists_public_routes(client: TestClient) -> None:
     paths = client.get("/openapi.json").json()["paths"]
-    assert set(paths) == {"/health", "/ready", "/v1/models"}
+    assert set(paths) == {
+        "/health",
+        "/ready",
+        "/v1/models",
+        "/v1/describe",
+        "/v1/analyze",
+        "/v1/embed",
+        "/v1/rerank",
+        "/v1/query",
+    }
 
 
 def test_unknown_route_is_standard_404(client: TestClient) -> None:
@@ -131,6 +145,7 @@ def test_create_app_defaults_to_environment_config() -> None:
         (OptionalDependencyError("install it"), 503, "dependency_unavailable"),
         (ImportError("no module"), 503, "dependency_unavailable"),
         (ModelLoadError("cannot load"), 503, "model_unavailable"),
+        (ServiceBusyError("generation"), 503, "service_busy"),
         (VLMEngineeringError("engine"), 400, "request_error"),
         (RuntimeError("secret-token"), 500, "internal_error"),
     ],
@@ -154,6 +169,272 @@ def test_exceptions_map_to_error_response(
         assert "secret-token" not in response.text
     else:
         assert body["detail"] == str(error)
+
+
+def test_busy_error_advertises_retry_after() -> None:
+    app = create_app(ServiceConfig())
+
+    @app.get("/busy")
+    def busy() -> None:
+        raise ServiceBusyError("generation")
+
+    response = TestClient(app, raise_server_exceptions=False).get("/busy")
+    assert response.status_code == 503
+    assert response.json()["error"] == "service_busy"
+    assert response.headers["Retry-After"] == "1"
+
+
+# -- Inference routes --------------------------------------------------------
+
+class _FakeGenerator:
+    def __init__(self) -> None:
+        self.generate_calls: list[dict[str, object]] = []
+        self.text_calls: list[dict[str, object]] = []
+
+    def generate(
+        self,
+        images: list[str],
+        prompt: str,
+        *,
+        max_new_tokens: int = 512,
+        system_prompt: str | None = None,
+    ) -> str:
+        self.generate_calls.append(
+            {
+                "images": list(images),
+                "prompt": prompt,
+                "max_new_tokens": max_new_tokens,
+                "system_prompt": system_prompt,
+            }
+        )
+        return "generated description"
+
+    def generate_text(
+        self,
+        prompt: str,
+        *,
+        max_new_tokens: int = 512,
+        system_prompt: str | None = None,
+    ) -> str:
+        self.text_calls.append({"prompt": prompt, "max_new_tokens": max_new_tokens})
+        return "generated answer"
+
+
+class _FakeEmbedder:
+    def __init__(self, dimensions: int = 128) -> None:
+        self.dimensions = dimensions
+        self.inputs: list[list[dict[str, str]]] = []
+
+    def encode(
+        self, inputs: list[dict[str, str]], *, prompt: str | None = None
+    ) -> np.ndarray:
+        self.inputs.append(inputs)
+        return np.ones((1, self.dimensions), dtype=np.float64)
+
+
+class _FakeReranker:
+    def __init__(self) -> None:
+        self.calls: list[dict[str, object]] = []
+
+    def rerank(
+        self,
+        query: object,
+        documents: list[object],
+        *,
+        top_k: int | None = None,
+        prompt: str | None = None,
+    ) -> list[SearchResult]:
+        self.calls.append({"query": query, "documents": documents, "top_k": top_k})
+        scores = [-2.5, 0.5, 0.25]
+        ordered = [
+            SearchResult(item=document, score=scores[index], rank=index + 1)
+            for index, document in enumerate(documents)
+        ]
+        return ordered[:top_k] if top_k is not None else ordered
+
+
+class _FakeStore:
+    def __init__(self, results: list[SearchResult]) -> None:
+        self.results = results
+        self.searches: list[dict[str, object]] = []
+
+    def search(
+        self,
+        query_embedding: np.ndarray,
+        *,
+        top_k: int = 5,
+        filter: dict[str, object] | None = None,
+    ) -> list[SearchResult]:
+        self.searches.append({"vector": query_embedding, "top_k": top_k})
+        return self.results[:top_k]
+
+
+class _Harness:
+    def __init__(self, tmp_path: Path, *, results: list[SearchResult] | None = None, **config: object) -> None:
+        self.media = tmp_path / "media"
+        self.media.mkdir()
+        self.image = self.media / "page.png"
+        self.image.write_bytes(b"image-bytes")
+        self.config = ServiceConfig(media_root=self.media, **config)  # type: ignore[arg-type]
+        self.generator = _FakeGenerator()
+        self.embedder = _FakeEmbedder()
+        self.reranker = _FakeReranker()
+        self.store = _FakeStore(
+            results
+            if results is not None
+            else [
+                SearchResult({"text": "evidence one"}, 0.9, 1),
+                SearchResult({"text": "evidence two"}, 0.8, 2),
+                SearchResult({"text": "evidence three"}, 0.7, 3),
+            ]
+        )
+        self.runtime = ServiceRuntime(
+            self.config,
+            generator=self.generator,
+            embedder=self.embedder,
+            reranker=self.reranker,
+            stores={"memory": self.store},
+        )
+        self.app = create_app(self.config)
+        self.app.state.runtime = self.runtime
+        self.client = TestClient(self.app)
+
+
+def test_describe_resolves_media_and_generates(tmp_path: Path) -> None:
+    harness = _Harness(tmp_path)
+    response = harness.client.post(
+        "/v1/describe",
+        json={"image": str(harness.image), "prompt": "Describe.", "max_new_tokens": 32},
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["answer"] == "generated description"
+    assert harness.generator.generate_calls[0]["images"] == [str(harness.image.resolve())]
+    assert harness.generator.generate_calls[0]["max_new_tokens"] == 32
+
+
+def test_analyze_is_an_alias_of_describe(tmp_path: Path) -> None:
+    harness = _Harness(tmp_path)
+    response = harness.client.post("/v1/analyze", json={"image": str(harness.image)})
+    assert response.status_code == 200
+    assert harness.generator.generate_calls
+
+
+def test_describe_rejects_paths_outside_media_root(tmp_path: Path) -> None:
+    harness = _Harness(tmp_path)
+    outside = tmp_path / "outside.png"
+    outside.write_bytes(b"x")
+    response = harness.client.post("/v1/describe", json={"image": str(outside)})
+    assert response.status_code == 400
+    assert response.json()["error"] == "invalid_request"
+    assert not harness.generator.generate_calls
+
+
+def test_describe_rejects_model_overrides(tmp_path: Path) -> None:
+    harness = _Harness(tmp_path)
+    response = harness.client.post(
+        "/v1/describe", json={"image": str(harness.image), "model_size": "8b"}
+    )
+    assert response.status_code == 400
+    assert "Per-request model selection" in response.json()["detail"]
+
+
+def test_embed_text_and_image_and_dimensions(tmp_path: Path) -> None:
+    harness = _Harness(tmp_path)
+    response = harness.client.post(
+        "/v1/embed",
+        json={"text": "hello", "image": str(harness.image), "dimensions": 64},
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["shape"] == [64]
+    assert len(body["vector"]) == 64
+    assert body["model"].endswith("Qwen3-VL-Embedding-2B")
+    sent = harness.embedder.inputs[0][0]
+    assert sent == {"text": "hello", "image": str(harness.image.resolve())}
+    assert np.isclose(np.linalg.norm(body["vector"]), 1.0)
+
+
+def test_embed_requires_text_or_image(tmp_path: Path) -> None:
+    harness = _Harness(tmp_path)
+    response = harness.client.post("/v1/embed", json={})
+    assert response.status_code == 422
+    assert response.json()["error"] == "validation_error"
+
+
+def test_embed_rejects_invalid_dimensions(tmp_path: Path) -> None:
+    harness = _Harness(tmp_path)
+    response = harness.client.post("/v1/embed", json={"text": "hello", "dimensions": 8})
+    assert response.status_code == 400
+
+
+def test_rerank_returns_ranked_results_and_normalizes(tmp_path: Path) -> None:
+    harness = _Harness(tmp_path)
+    response = harness.client.post(
+        "/v1/rerank",
+        json={
+            "query": "which?",
+            "documents": [{"text": "a"}, {"text": "b"}],
+            "normalize_scores": True,
+        },
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert [item["rank"] for item in body["results"]] == [1, 2]
+    assert 0.0 < body["results"][0]["score"] < 1.0
+    assert body["model"].endswith("Qwen3-VL-Reranker-2B")
+
+
+def test_rerank_requires_documents(tmp_path: Path) -> None:
+    harness = _Harness(tmp_path)
+    response = harness.client.post("/v1/rerank", json={"query": "q", "documents": []})
+    assert response.status_code == 422
+
+
+def test_query_retrieves_reranks_and_answers(tmp_path: Path) -> None:
+    harness = _Harness(tmp_path)
+    response = harness.client.post("/v1/query", json={"question": "What is shown?", "top_k": 2})
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["answer"] == "generated answer"
+    assert len(body["chunks"]) == 2
+    assert harness.store.searches[0]["top_k"] == 12
+    assert "SOURCE 1: evidence one" in str(harness.generator.text_calls[0]["prompt"])
+
+
+def test_query_with_image_sends_it_to_the_generator(tmp_path: Path) -> None:
+    harness = _Harness(tmp_path)
+    response = harness.client.post(
+        "/v1/query", json={"question": "Compare.", "query_image": str(harness.image)}
+    )
+    assert response.status_code == 200, response.text
+    assert harness.generator.generate_calls[0]["images"] == [str(harness.image.resolve())]
+
+
+def test_query_without_evidence_does_not_call_the_generator(tmp_path: Path) -> None:
+    harness = _Harness(tmp_path, results=[])
+    response = harness.client.post("/v1/query", json={"question": "Anything?"})
+    assert response.status_code == 200
+    assert response.json()["answer"] == NO_EVIDENCE_ANSWER
+    assert response.json()["chunks"] == []
+    assert not harness.generator.text_calls
+
+
+def test_query_rejects_candidate_k_below_top_k(tmp_path: Path) -> None:
+    harness = _Harness(tmp_path)
+    response = harness.client.post(
+        "/v1/query", json={"question": "q", "top_k": 5, "candidate_k": 2}
+    )
+    assert response.status_code == 400
+
+
+def test_saturated_capability_returns_503_with_retry_after(tmp_path: Path) -> None:
+    harness = _Harness(tmp_path, max_concurrency=1)
+    with harness.runtime.limiter.slot("generation"):
+        response = harness.client.post("/v1/describe", json={"image": str(harness.image)})
+    assert response.status_code == 503
+    assert response.json()["error"] == "service_busy"
+    assert response.headers["Retry-After"] == "1"
+    assert not harness.generator.generate_calls
 
 
 def test_lifespan_closes_the_runtime_on_shutdown() -> None:

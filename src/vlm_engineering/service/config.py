@@ -42,12 +42,20 @@ MODEL_SIZE_ENV = "VLM_SERVICE_MODEL_SIZE"
 MODEL_ID_ENV = "VLM_SERVICE_MODEL_ID"
 MODEL_PATH_ENV = "VLM_SERVICE_MODEL_PATH"
 REQUEST_TIMEOUT_ENV = "VLM_SERVICE_REQUEST_TIMEOUT"
+STORE_ENV = "VLM_SERVICE_STORE"
+STORE_PATH_ENV = "VLM_SERVICE_STORE_PATH"
+QDRANT_HOST_ENV = "VLM_SERVICE_QDRANT_HOST"
+QDRANT_PORT_ENV = "VLM_SERVICE_QDRANT_PORT"
+QDRANT_COLLECTION_ENV = "VLM_SERVICE_QDRANT_COLLECTION"
+QDRANT_API_KEY_ENV = "VLM_SERVICE_QDRANT_API_KEY"
+QDRANT_HTTPS_ENV = "VLM_SERVICE_QDRANT_HTTPS"
 
 DEFAULT_RATE_LIMIT = "120/minute"
 DEFAULT_MAX_BODY_BYTES = 10 * 1024 * 1024
 DEFAULT_REQUEST_TIMEOUT = 120.0
 DEFAULT_MAX_CONCURRENCY = 2
 SUPPORTED_PROVIDERS = ("qwen", "openai-compatible")
+SUPPORTED_STORES = ("memory", "sqlite-vec", "qdrant")
 
 _RATE_LIMIT_PERIODS = {
     "second": 1,
@@ -151,6 +159,13 @@ class ServiceConfig:
     model_id: str | None = None
     model_path: Path | None = None
     request_timeout: float = DEFAULT_REQUEST_TIMEOUT
+    store: str = "memory"
+    store_path: str = "index"
+    qdrant_host: str = "localhost"
+    qdrant_port: int = 6333
+    qdrant_collection: str = "vlm_engineering"
+    qdrant_api_key: str | None = field(default=None, repr=False)
+    qdrant_https: bool = False
 
     def __post_init__(self) -> None:
         if self.api_key is not None:
@@ -178,6 +193,29 @@ class ServiceConfig:
             raise InputValidationError(f"{VLM_PROVIDER_ENV} must be one of: {options}.")
         self._validate_model_selection()
         self._validate_provider_settings()
+        self._validate_store_settings()
+
+    def _validate_store_settings(self) -> None:
+        if self.store not in SUPPORTED_STORES:
+            options = ", ".join(SUPPORTED_STORES)
+            raise InputValidationError(f"{STORE_ENV} must be one of: {options}.")
+        if not isinstance(self.store_path, str) or not self.store_path.strip():
+            raise InputValidationError(f"{STORE_PATH_ENV} must be a non-empty string.")
+        store_path = Path(self.store_path)
+        if store_path.is_absolute() or ".." in store_path.parts:
+            raise InputValidationError(f"{STORE_PATH_ENV} must be a relative path without '..'.")
+        if not isinstance(self.qdrant_host, str) or not self.qdrant_host.strip():
+            raise InputValidationError(f"{QDRANT_HOST_ENV} must be a non-empty string.")
+        if type(self.qdrant_port) is not int or not 1 <= self.qdrant_port <= 65535:
+            raise InputValidationError(f"{QDRANT_PORT_ENV} must be a port between 1 and 65535.")
+        if not isinstance(self.qdrant_collection, str) or not self.qdrant_collection.strip():
+            raise InputValidationError(f"{QDRANT_COLLECTION_ENV} must be a non-empty string.")
+        if self.qdrant_api_key is not None and (
+            not isinstance(self.qdrant_api_key, str) or not self.qdrant_api_key.strip()
+        ):
+            raise InputValidationError(f"{QDRANT_API_KEY_ENV} must not be empty.")
+        if type(self.qdrant_https) is not bool:
+            raise InputValidationError(f"{QDRANT_HTTPS_ENV} must be a boolean.")
 
     def _validate_model_selection(self) -> None:
         selected = [name for name, value in (
@@ -263,5 +301,14 @@ class ServiceConfig:
             model_path=_parse_path(raw) if (raw := _read(source, MODEL_PATH_ENV)) else None,
             request_timeout=_parse_float(
                 timeout_raw or str(DEFAULT_REQUEST_TIMEOUT), REQUEST_TIMEOUT_ENV
+            ),
+            store=(_read(source, STORE_ENV) or "memory").lower(),
+            store_path=_read(source, STORE_PATH_ENV) or "index",
+            qdrant_host=_read(source, QDRANT_HOST_ENV) or "localhost",
+            qdrant_port=_parse_int(_read(source, QDRANT_PORT_ENV) or "6333", QDRANT_PORT_ENV),
+            qdrant_collection=_read(source, QDRANT_COLLECTION_ENV) or "vlm_engineering",
+            qdrant_api_key=_read(source, QDRANT_API_KEY_ENV),
+            qdrant_https=_parse_bool(
+                _read(source, QDRANT_HTTPS_ENV) or "false", QDRANT_HTTPS_ENV
             ),
         )
