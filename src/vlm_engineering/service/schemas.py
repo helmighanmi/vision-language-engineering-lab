@@ -42,6 +42,27 @@ class HealthResponse(BaseModel):
     version: str = Field(default_factory=package_version)
 
 
+# -- Models -----------------------------------------------------------------
+
+class ModelInfo(BaseModel):
+    """One capability/model pair served by this process."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    capability: str
+    model: str
+    provider: str
+
+
+class ModelsResponse(BaseModel):
+    """Configured model catalog; constructing it never loads weights."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    provider: str
+    models: list[ModelInfo]
+
+
 # -- Describe / Analyze -----------------------------------------------------
 
 class DescribeRequest(BaseModel):

@@ -13,6 +13,13 @@ import importlib.metadata
 
 import pytest
 
+from vlm_engineering.exceptions import (
+    InputValidationError,
+    ModelLoadError,
+    OptionalDependencyError,
+    VLMEngineeringError,
+)
+
 pytest.importorskip("fastapi", reason="the service extra is not installed")
 
 from fastapi.exceptions import RequestValidationError  # noqa: E402
@@ -48,13 +55,26 @@ def test_ready_reports_ok(client: TestClient) -> None:
     assert response.json()["status"] == "ok"
 
 
-def test_openapi_schema_lists_health_routes(client: TestClient) -> None:
+def test_openapi_schema_lists_public_routes(client: TestClient) -> None:
     paths = client.get("/openapi.json").json()["paths"]
-    assert set(paths) == {"/health", "/ready"}
+    assert set(paths) == {"/health", "/ready", "/v1/models"}
 
 
 def test_unknown_route_is_standard_404(client: TestClient) -> None:
-    assert client.get("/v1/models").status_code == 404
+    assert client.get("/v1/not-a-route").status_code == 404
+
+
+def test_models_catalog_lists_configured_capabilities(client: TestClient) -> None:
+    response = client.get("/v1/models")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["provider"] == "qwen"
+    assert [item["capability"] for item in body["models"]] == [
+        "generation",
+        "embedding",
+        "reranking",
+    ]
+    assert body["models"][0]["model"].endswith("Qwen3-VL-2B-Instruct")
 
 
 def test_validation_error_response_shape() -> None:
@@ -97,6 +117,43 @@ def test_app_state_exposes_config_and_runtime() -> None:
 def test_create_app_defaults_to_environment_config() -> None:
     app = create_app()
     assert isinstance(app.state.config, ServiceConfig)
+
+
+# -- Error mapping -----------------------------------------------------------
+
+@pytest.mark.parametrize(
+    ("error", "status_code", "code"),
+    [
+        (InputValidationError("bad input"), 400, "invalid_request"),
+        (ValueError("bad value"), 400, "invalid_request"),
+        (FileNotFoundError("missing"), 400, "file_not_found"),
+        (PermissionError("denied"), 400, "permission_denied"),
+        (OptionalDependencyError("install it"), 503, "dependency_unavailable"),
+        (ImportError("no module"), 503, "dependency_unavailable"),
+        (ModelLoadError("cannot load"), 503, "model_unavailable"),
+        (VLMEngineeringError("engine"), 400, "request_error"),
+        (RuntimeError("secret-token"), 500, "internal_error"),
+    ],
+)
+def test_exceptions_map_to_error_response(
+    error: Exception, status_code: int, code: str
+) -> None:
+    app = create_app(ServiceConfig())
+
+    @app.get("/boom")
+    def boom() -> None:
+        raise error
+
+    client = TestClient(app, raise_server_exceptions=False)
+    response = client.get("/boom")
+    assert response.status_code == status_code
+    body = response.json()
+    assert body["error"] == code
+    if status_code == 500:
+        assert body["detail"] is None
+        assert "secret-token" not in response.text
+    else:
+        assert body["detail"] == str(error)
 
 
 def test_lifespan_closes_the_runtime_on_shutdown() -> None:

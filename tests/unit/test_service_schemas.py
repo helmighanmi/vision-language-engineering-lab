@@ -31,6 +31,8 @@ from vlm_engineering.service.schemas import (  # noqa: E402
     IngestResultItem,
     JobResponse,
     JobStatusResponse,
+    ModelInfo,
+    ModelsResponse,
     QueryRequest,
     QueryResponse,
     RerankRequest,
@@ -57,6 +59,17 @@ def test_health_response_defaults_to_package_version() -> None:
 def test_error_response_optional_detail() -> None:
     assert ErrorResponse(error="boom").detail is None
     assert ErrorResponse(error="boom", detail="why").detail == "why"
+
+
+# -- Models ------------------------------------------------------------------
+
+def test_models_response_shape() -> None:
+    response = ModelsResponse(
+        provider="qwen",
+        models=[ModelInfo(capability="generation", model="m", provider="qwen")],
+    )
+    assert response.models[0].capability == "generation"
+    assert response.models[0].provider == "qwen"
 
 
 # -- Describe ----------------------------------------------------------------
