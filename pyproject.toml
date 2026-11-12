@@ -118,7 +118,7 @@ stores = [
 
 # Document ingestion: PDF parsing and page rendering.
 ingest = [
-  "pypdf>=5.3,<6",
+  "pypdf>=5.3,<8",
   "pdf2image>=1.17,<2",
 ]
 
