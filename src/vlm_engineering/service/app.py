@@ -15,16 +15,23 @@ from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
+from .config import ServiceConfig
 from .routers import health
+from .runtime import ServiceRuntime
 from .schemas import ErrorResponse, package_version
 
 _SERVICE_TITLE = "Vision-Language Engineering Lab service"
 
 
 @asynccontextmanager
-async def _lifespan(_: FastAPI) -> AsyncIterator[None]:
-    """Hold service-wide resources; runtime wiring arrives in later phases."""
-    yield
+async def _lifespan(application: FastAPI) -> AsyncIterator[None]:
+    """Yield, then release providers and stores on shutdown."""
+    try:
+        yield
+    finally:
+        runtime = getattr(application.state, "runtime", None)
+        if runtime is not None:
+            runtime.close()
 
 
 async def _validation_error_response(
@@ -41,14 +48,17 @@ async def _validation_error_response(
     return JSONResponse(status_code=422, content=payload.model_dump())
 
 
-def create_app() -> FastAPI:
-    """Build the FastAPI application with health routes and error shaping."""
+def create_app(config: ServiceConfig | None = None) -> FastAPI:
+    """Build the FastAPI application with health routes and runtime wiring."""
+    service_config = config or ServiceConfig.from_env()
     application = FastAPI(
         title=_SERVICE_TITLE,
         version=package_version(),
         lifespan=_lifespan,
         exception_handlers={RequestValidationError: _validation_error_response},
     )
+    application.state.config = service_config
+    application.state.runtime = ServiceRuntime(service_config)
     application.include_router(health.router)
     return application
 

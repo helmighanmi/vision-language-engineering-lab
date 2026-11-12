@@ -79,3 +79,33 @@ def test_unknown_service_attribute_raises_attribute_error() -> None:
         "raise SystemExit(1)\n"
     )
     assert proc.returncode == 0, proc.stderr
+
+
+def test_config_and_runtime_import_without_service_dependencies() -> None:
+    """Config/runtime stay stdlib-only and construct no backends on import."""
+    proc = _run(
+        "import importlib.abc\n"
+        "import sys\n"
+        "\n"
+        "\n"
+        "class _Blocker(importlib.abc.MetaPathFinder):\n"
+        "    def find_spec(self, fullname, path=None, target=None):\n"
+        "        if fullname.split('.')[0] in {'fastapi', 'pydantic', 'uvicorn', 'httpx', 'torch'}:\n"
+        "            raise ImportError(f'blocked: {fullname}')\n"
+        "        return None\n"
+        "\n"
+        "\n"
+        "sys.meta_path.insert(0, _Blocker())\n"
+        "from vlm_engineering.service.config import ServiceConfig\n"
+        "from vlm_engineering.service.runtime import ServiceRuntime\n"
+        "\n"
+        "runtime = ServiceRuntime(ServiceConfig())\n"
+        "assert runtime.loaded_backends() == {\n"
+        "    'generator': False,\n"
+        "    'embedder': False,\n"
+        "    'reranker': False,\n"
+        "}\n"
+        "print('ok')\n"
+    )
+    assert proc.returncode == 0, proc.stderr
+    assert proc.stdout.strip() == "ok"

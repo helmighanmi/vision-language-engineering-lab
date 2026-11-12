@@ -20,6 +20,8 @@ from fastapi.testclient import TestClient  # noqa: E402
 
 from vlm_engineering.service import create_app  # noqa: E402
 from vlm_engineering.service.app import _validation_error_response  # noqa: E402
+from vlm_engineering.service.config import ServiceConfig  # noqa: E402
+from vlm_engineering.service.runtime import ServiceRuntime  # noqa: E402
 from vlm_engineering.service.schemas import package_version  # noqa: E402
 
 
@@ -76,3 +78,40 @@ def test_validation_error_response_with_no_issues() -> None:
     exc = RequestValidationError(errors=[], body=None)
     response = asyncio.run(_validation_error_response(None, exc))  # type: ignore[arg-type]
     assert response.status_code == 422
+
+
+# -- Runtime wiring ----------------------------------------------------------
+
+def test_app_state_exposes_config_and_runtime() -> None:
+    app = create_app(ServiceConfig(max_concurrency=3))
+    assert app.state.config.max_concurrency == 3
+    assert isinstance(app.state.runtime, ServiceRuntime)
+    assert app.state.runtime.config is app.state.config
+    assert app.state.runtime.loaded_backends() == {
+        "generator": False,
+        "embedder": False,
+        "reranker": False,
+    }
+
+
+def test_create_app_defaults_to_environment_config() -> None:
+    app = create_app()
+    assert isinstance(app.state.config, ServiceConfig)
+
+
+def test_lifespan_closes_the_runtime_on_shutdown() -> None:
+    class _FakeProvider:
+        def __init__(self) -> None:
+            self.unload_calls = 0
+
+        def unload(self) -> None:
+            self.unload_calls += 1
+
+    fake = _FakeProvider()
+    app = create_app(ServiceConfig())
+    app.state.runtime = ServiceRuntime(ServiceConfig(), generator=fake)
+
+    with TestClient(app) as client:
+        assert client.get("/health").status_code == 200
+
+    assert fake.unload_calls == 1
