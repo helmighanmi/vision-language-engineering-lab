@@ -8,6 +8,50 @@ Research Profile: https://www.researchgate.net/profile/Ghanmi-Helmi
 
 # Changelog
 
+## 0.4.0 — 2026-11-13: HTTP service API and retrieval platform
+
+This release covers everything merged after 0.3.2: the v0.4 retrieval
+platform, which had not been published yet, plus the new HTTP service API.
+
+### HTTP service API (`[service]` extra)
+
+- Add `vlm_engineering.service` with `create_app()`, a guarded import that
+  explains how to install the extra, and `uvicorn
+  vlm_engineering.service.app:app` support. `/health` serves without any
+  model backend installed.
+- Add synchronous routes: `GET /v1/models`, `POST /v1/describe`,
+  `POST /v1/analyze`, `POST /v1/embed`, `POST /v1/rerank` and
+  `POST /v1/query` (embed, search, rerank, answer).
+- Add asynchronous job routes: `POST /v1/ingest`, `POST /v1/index`,
+  `POST /v1/evaluate` return `202` with a UUID4 job id; `GET
+  /v1/jobs/{id}` polls status/result/error and `DELETE /v1/jobs/{id}`
+  removes finished jobs. The registry is bounded and TTL-based.
+- Add environment configuration for every `VLM_SERVICE_*` setting:
+  model selection, provider, request timeout, media/output roots, remote
+  images (opt-in), store backend (`memory`, `sqlite-vec`, `qdrant`),
+  Qdrant connection, concurrency, job retention and capacity.
+- Reject per-request model overrides and confine local media/output
+  references to their configured roots, including symlink escapes.
+- Add per-capability admission control: saturated capabilities answer
+  `503 service_busy` with `Retry-After` instead of queueing without bound.
+- Normalize every failure into one `ErrorResponse` shape (400/404/409/
+  422/429/500/503) without leaking tracebacks or backend internals.
+
+### Retrieval and ingestion platform
+
+- Add interchangeable vector stores (`memory`, `sqlite-vec`, `qdrant`)
+  behind a single `VectorStore` protocol with upsert/delete/filter
+  support.
+- Add the ingestion pipeline (images and pre-rendered pages to
+  traceable `VisualChunk` objects), a pluggable OCR interface and the
+  `vlm-lab ingest`/`vlm-lab index` commands.
+- Add the evaluation runner with Recall@K, nDCG@K, MRR and keypoint
+  coverage, plus JSONL/JSON dataset loading and `vlm-lab evaluate`.
+- Add prompt templates, the embedding/reranking response cache, typed
+  runtime YAML profiles and actionable optional-dependency errors.
+- Add OpenAI-compatible HTTP providers for generation, embedding and
+  reranking alongside the Qwen3-VL providers.
+
 ## 0.3.2 — 2026-11-06: Reliability and security fixes
 
 - Fix `TextChunker` so every emitted chunk respects `max_chars`, including an

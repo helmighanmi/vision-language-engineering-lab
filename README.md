@@ -14,7 +14,7 @@ Research Profile: https://www.researchgate.net/profile/Ghanmi-Helmi
 
 The implementation lives under `src/vlm_engineering/`. Notebooks are analysis/demo clients, `examples/` provides small API examples, and `scenarios/` contains end-to-end application recipes.
 
-> **v0.3.2 compatibility target:** Python 3.11, 3.12, and 3.13.
+> **v0.4.0 compatibility target:** Python 3.11, 3.12, and 3.13.
 
 v0.3.1 introduced the two-stage multimodal retrieval stack:
 
@@ -1363,13 +1363,13 @@ docker compose run --rm \
 
 ```bash
 docker build \
-  -t vision-language-engineering-lab:0.3.2 \
+  -t vision-language-engineering-lab:0.4.0 \
   .
 ```
 
 ```bash
 docker run --rm \
-  vision-language-engineering-lab:0.3.2 \
+  vision-language-engineering-lab:0.4.0 \
   models
 ```
 
@@ -1407,12 +1407,12 @@ The project uses:
 | `pip check` | installed dependency consistency |
 | `pip-audit` | known dependency-vulnerability auditing |
 
-For the v0.3.2 release branch, deterministic validation reached:
+For the v0.4.0 release branch, deterministic validation reached:
 
 ```text
-347 passed
-2 skipped (opt-in real-model tests)
-95% coverage
+670 passed
+2 deselected (opt-in real-model tests)
+86% coverage
 pip check: no broken requirements
 pip-audit: no known vulnerabilities
 ```
