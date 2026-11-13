@@ -15,7 +15,19 @@ from fastapi import FastAPI
 
 from .config import ServiceConfig
 from .errors import register_error_handlers, validation_error_response
-from .routers import describe, embed, health, models, query, rerank
+from .jobs import JobRegistry
+from .routers import (
+    describe,
+    embed,
+    evaluate,
+    health,
+    index,
+    ingest,
+    jobs,
+    models,
+    query,
+    rerank,
+)
 from .runtime import ServiceRuntime
 from .schemas import package_version
 
@@ -47,12 +59,20 @@ def create_app(config: ServiceConfig | None = None) -> FastAPI:
     register_error_handlers(application)
     application.state.config = service_config
     application.state.runtime = ServiceRuntime(service_config)
+    application.state.jobs = JobRegistry(
+        ttl_seconds=service_config.job_ttl,
+        max_jobs=service_config.max_jobs,
+    )
     application.include_router(health.router)
     application.include_router(models.router)
     application.include_router(describe.router)
     application.include_router(embed.router)
     application.include_router(rerank.router)
     application.include_router(query.router)
+    application.include_router(ingest.router)
+    application.include_router(index.router)
+    application.include_router(evaluate.router)
+    application.include_router(jobs.router)
     return application
 
 

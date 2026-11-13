@@ -17,6 +17,7 @@ when remote support is implemented end-to-end.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from pathlib import Path
 from urllib.parse import unquote, urlsplit
 
@@ -27,6 +28,10 @@ _REMOTE_SCHEMES = frozenset({"http", "https"})
 _REMOTE_DISABLED = (
     "Remote images are disabled; set VLM_SERVICE_ALLOW_REMOTE_IMAGES=1 to enable them."
 )
+# Kept in sync with ``vlm_engineering.ingestion.pipeline`` by a unit test.
+SUPPORTED_IMAGE_EXTENSIONS = frozenset(
+    {".png", ".jpg", ".jpeg", ".webp", ".bmp", ".tiff"}
+)
 
 
 def _relative_to(path: Path, root: Path, root_name: str, label: str) -> Path:
@@ -35,6 +40,21 @@ def _relative_to(path: Path, root: Path, root_name: str, label: str) -> Path:
     except ValueError:
         raise InputValidationError(f"{label} escapes {root_name}: {path}") from None
     return path
+
+
+def _local_media_path(reference: str, config: ServiceConfig) -> Path:
+    """Resolve a local reference and require it to stay inside the media root."""
+    parts = urlsplit(reference)
+    scheme = parts.scheme.lower()
+    if scheme and scheme != "file":
+        raise InputValidationError(
+            f"Unsupported image scheme {scheme!r}; use a local path or an http(s) URL."
+        )
+    raw_path = Path(unquote(parts.path)) if scheme == "file" else Path(reference).expanduser()
+    root = config.media_root
+    if root is None:
+        raise InputValidationError(f"Local image paths require {MEDIA_ROOT_ENV} to be configured.")
+    return _relative_to(raw_path.resolve(), root.resolve(), MEDIA_ROOT_ENV, "image")
 
 
 def resolve_media_reference(reference: str, config: ServiceConfig) -> str:
@@ -56,21 +76,52 @@ def resolve_media_reference(reference: str, config: ServiceConfig) -> str:
         if not parts.netloc:
             raise InputValidationError("Remote image URL must include a host.")
         return value
-    if scheme and scheme != "file":
-        raise InputValidationError(
-            f"Unsupported image scheme {scheme!r}; use a local path or an http(s) URL."
-        )
 
-    raw_path = Path(unquote(parts.path)) if scheme == "file" else Path(value).expanduser()
-    root = config.media_root
-    if root is None:
-        raise InputValidationError(f"Local image paths require {MEDIA_ROOT_ENV} to be configured.")
-    resolved = _relative_to(raw_path.resolve(), root.resolve(), MEDIA_ROOT_ENV, "image")
+    resolved = _local_media_path(value, config)
     if not resolved.exists():
         raise InputValidationError(f"Image path does not exist: {resolved}")
     if not resolved.is_file():
         raise InputValidationError(f"Image path is not a file: {resolved}")
     return str(resolved)
+
+
+def resolve_media_entries(
+    references: Sequence[str],
+    config: ServiceConfig,
+    *,
+    recursive: bool = False,
+) -> list[str]:
+    """Expand ingest references into a deterministic list of allowed images.
+
+    Mirrors the CLI's directory semantics: directories are scanned one level
+    deep (or recursively when ``recursive``) and only supported image suffixes
+    are kept. Every expanded file is validated against the media root, so a
+    symlink inside the media root cannot smuggle an outside file into a job.
+    """
+    entries: list[str] = []
+    for reference in references:
+        value = reference.strip()
+        if urlsplit(value).scheme.lower() in _REMOTE_SCHEMES:
+            entries.append(resolve_media_reference(value, config))
+            continue
+        path = _local_media_path(value, config)
+        if path.is_dir():
+            pattern = "**/*" if recursive else "*"
+            entries.extend(
+                sorted(
+                    str(candidate.resolve())
+                    for candidate in path.glob(pattern)
+                    if candidate.is_file()
+                    and candidate.suffix.lower() in SUPPORTED_IMAGE_EXTENSIONS
+                )
+            )
+            continue
+        if not path.is_file():
+            raise InputValidationError(f"Image path does not exist: {path}")
+        entries.append(str(path))
+    if not entries:
+        raise InputValidationError("No supported images found in the provided paths.")
+    return entries
 
 
 def resolve_output_path(reference: str, config: ServiceConfig) -> Path:

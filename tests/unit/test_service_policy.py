@@ -14,9 +14,12 @@ from pathlib import Path
 import pytest
 
 from vlm_engineering.exceptions import InputValidationError
+from vlm_engineering.ingestion.pipeline import SUPPORTED_IMAGE_EXTENSIONS as PIPELINE_EXTENSIONS
 from vlm_engineering.service.config import ServiceConfig
 from vlm_engineering.service.policy import (
+    SUPPORTED_IMAGE_EXTENSIONS,
     reject_model_overrides,
+    resolve_media_entries,
     resolve_media_reference,
     resolve_output_path,
 )
@@ -125,6 +128,83 @@ def test_file_uri_is_accepted_inside_media_root(
     image = media / "page.png"
     image.write_bytes(b"x")
     assert resolve_media_reference(image.as_uri(), config) == str(image.resolve())
+
+
+# -- Media entries (ingest) --------------------------------------------------
+
+def test_supported_extensions_match_the_ingestion_pipeline() -> None:
+    assert SUPPORTED_IMAGE_EXTENSIONS == PIPELINE_EXTENSIONS
+
+
+def test_media_entries_expand_directories_in_sorted_order(
+    roots: tuple[ServiceConfig, Path, Path],
+) -> None:
+    config, media, _ = roots
+    pages = media / "pages"
+    pages.mkdir()
+    (pages / "b.png").write_bytes(b"b")
+    (pages / "a.jpg").write_bytes(b"a")
+    (pages / "notes.txt").write_text("ignored", encoding="utf-8")
+
+    entries = resolve_media_entries([str(pages)], config)
+    assert entries == [str((pages / "a.jpg").resolve()), str((pages / "b.png").resolve())]
+
+
+def test_media_entries_can_recurse(roots: tuple[ServiceConfig, Path, Path]) -> None:
+    config, media, _ = roots
+    nested = media / "pages" / "chapter"
+    nested.mkdir(parents=True)
+    (nested / "deep.png").write_bytes(b"x")
+    with pytest.raises(InputValidationError, match="No supported images"):
+        resolve_media_entries([str(media / "pages")], config)
+    assert resolve_media_entries([str(media / "pages")], config, recursive=True) == [
+        str((nested / "deep.png").resolve())
+    ]
+
+
+def test_media_entries_accept_files_and_directories_together(
+    roots: tuple[ServiceConfig, Path, Path],
+) -> None:
+    config, media, _ = roots
+    pages = media / "pages"
+    pages.mkdir()
+    (pages / "a.png").write_bytes(b"a")
+    single = media / "single.png"
+    single.write_bytes(b"s")
+    entries = resolve_media_entries([str(single), str(pages)], config)
+    assert entries == [str(single.resolve()), str((pages / "a.png").resolve())]
+
+
+def test_media_entries_reject_empty_or_missing_inputs(
+    roots: tuple[ServiceConfig, Path, Path],
+) -> None:
+    config, media, _ = roots
+    empty = media / "empty"
+    empty.mkdir()
+    with pytest.raises(InputValidationError, match="No supported images"):
+        resolve_media_entries([str(empty)], config)
+    with pytest.raises(InputValidationError, match="does not exist"):
+        resolve_media_entries([str(media / "missing.png")], config)
+
+
+def test_media_entries_reject_directories_outside_the_root(
+    roots: tuple[ServiceConfig, Path, Path], tmp_path: Path
+) -> None:
+    config, _, _ = roots
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "a.png").write_bytes(b"a")
+    with pytest.raises(InputValidationError, match="escapes VLM_SERVICE_MEDIA_ROOT"):
+        resolve_media_entries([str(outside)], config)
+
+
+def test_media_entries_follow_the_remote_image_policy() -> None:
+    with pytest.raises(InputValidationError, match="ALLOW_REMOTE_IMAGES"):
+        resolve_media_entries(["https://example.com/a.png"], ServiceConfig())
+    enabled = ServiceConfig(allow_remote_images=True)
+    assert resolve_media_entries(["https://example.com/a.png"], enabled) == [
+        "https://example.com/a.png"
+    ]
 
 
 # -- Output ------------------------------------------------------------------

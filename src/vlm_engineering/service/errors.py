@@ -28,6 +28,7 @@ from ..exceptions import (
     VLMEngineeringError,
 )
 from .concurrency import ServiceBusyError
+from .jobs import JobNotFoundError, JobStateError
 from .schemas import ErrorResponse
 
 logger = logging.getLogger(__name__)
@@ -101,6 +102,8 @@ def exception_handlers() -> dict[type[Exception], ExceptionHandler]:
         ImportError: _constant(status.HTTP_503_SERVICE_UNAVAILABLE, "dependency_unavailable"),
         ModelLoadError: _constant(status.HTTP_503_SERVICE_UNAVAILABLE, "model_unavailable"),
         ServiceBusyError: busy_error_response,
+        JobNotFoundError: _constant(status.HTTP_404_NOT_FOUND, "not_found"),
+        JobStateError: _constant(status.HTTP_409_CONFLICT, "job_conflict"),
         VLMEngineeringError: _constant(status.HTTP_400_BAD_REQUEST, "request_error"),
         Exception: unexpected_error_response,
     }

@@ -53,6 +53,8 @@ def test_defaults_when_environment_is_empty() -> None:
     assert config.qdrant_collection == "vlm_engineering"
     assert config.qdrant_api_key is None
     assert config.qdrant_https is False
+    assert config.job_ttl == 900.0
+    assert config.max_jobs == 256
 
 
 def test_from_env_reads_every_supported_variable() -> None:
@@ -80,6 +82,8 @@ def test_from_env_reads_every_supported_variable() -> None:
             "VLM_SERVICE_QDRANT_COLLECTION": "documents",
             "VLM_SERVICE_QDRANT_API_KEY": "qdrant-secret",
             "VLM_SERVICE_QDRANT_HTTPS": "yes",
+            "VLM_SERVICE_JOB_TTL": "60",
+            "VLM_SERVICE_MAX_JOBS": "8",
         }
     )
     assert config.api_key == "gateway-secret"
@@ -104,6 +108,8 @@ def test_from_env_reads_every_supported_variable() -> None:
     assert config.qdrant_collection == "documents"
     assert config.qdrant_api_key == "qdrant-secret"
     assert config.qdrant_https is True
+    assert config.job_ttl == 60.0
+    assert config.max_jobs == 8
 
 
 def test_blank_values_are_treated_as_unset() -> None:
@@ -230,6 +236,13 @@ def test_multiple_model_selectors_are_rejected() -> None:
         )
     with pytest.raises(InputValidationError, match=MODEL_PATH_ENV):
         ServiceConfig.from_env({"VLM_SERVICE_MODEL_SIZE": "2b", "VLM_SERVICE_MODEL_PATH": "/models/q"})
+
+
+def test_invalid_job_settings_are_rejected() -> None:
+    with pytest.raises(InputValidationError, match="JOB_TTL"):
+        ServiceConfig(job_ttl=0.0)
+    with pytest.raises(InputValidationError, match="MAX_JOBS"):
+        ServiceConfig(max_jobs=0)
 
 
 def test_invalid_store_configuration_is_rejected() -> None:

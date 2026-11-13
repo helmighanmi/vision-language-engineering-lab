@@ -307,8 +307,15 @@ class EvaluateRequest(BaseModel):
 
     cases: list[dict[str, Any]] = Field(..., min_length=1)
     chunks: list[dict[str, Any]] = Field(..., min_length=1)
-    k_values: list[int] = Field(default=[1, 3, 5])
+    k_values: list[int] = Field(default=[1, 3, 5], min_length=1)
     prompt: Optional[str] = None
+
+    @field_validator("k_values")
+    @classmethod
+    def _positive_k_values(cls, value: list[int]) -> list[int]:
+        if any(item <= 0 for item in value):
+            raise ValueError("k_values must contain positive integers.")
+        return value
 
 
 class EvaluateResponse(BaseModel):

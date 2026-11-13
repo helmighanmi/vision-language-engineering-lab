@@ -11,6 +11,7 @@ from __future__ import annotations
 from fastapi import Request
 
 from ..config import ServiceConfig
+from ..jobs import JobRegistry
 from ..runtime import ServiceRuntime
 
 
@@ -22,3 +23,8 @@ def service_config(request: Request) -> ServiceConfig:
 def service_runtime(request: Request) -> ServiceRuntime:
     runtime: ServiceRuntime = request.app.state.runtime
     return runtime
+
+
+def job_registry(request: Request) -> JobRegistry:
+    registry: JobRegistry = request.app.state.jobs
+    return registry

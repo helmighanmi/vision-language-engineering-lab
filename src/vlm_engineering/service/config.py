@@ -49,11 +49,15 @@ QDRANT_PORT_ENV = "VLM_SERVICE_QDRANT_PORT"
 QDRANT_COLLECTION_ENV = "VLM_SERVICE_QDRANT_COLLECTION"
 QDRANT_API_KEY_ENV = "VLM_SERVICE_QDRANT_API_KEY"
 QDRANT_HTTPS_ENV = "VLM_SERVICE_QDRANT_HTTPS"
+JOB_TTL_ENV = "VLM_SERVICE_JOB_TTL"
+MAX_JOBS_ENV = "VLM_SERVICE_MAX_JOBS"
 
 DEFAULT_RATE_LIMIT = "120/minute"
 DEFAULT_MAX_BODY_BYTES = 10 * 1024 * 1024
 DEFAULT_REQUEST_TIMEOUT = 120.0
 DEFAULT_MAX_CONCURRENCY = 2
+DEFAULT_JOB_TTL = 900.0
+DEFAULT_MAX_JOBS = 256
 SUPPORTED_PROVIDERS = ("qwen", "openai-compatible")
 SUPPORTED_STORES = ("memory", "sqlite-vec", "qdrant")
 
@@ -166,6 +170,8 @@ class ServiceConfig:
     qdrant_collection: str = "vlm_engineering"
     qdrant_api_key: str | None = field(default=None, repr=False)
     qdrant_https: bool = False
+    job_ttl: float = DEFAULT_JOB_TTL
+    max_jobs: int = DEFAULT_MAX_JOBS
 
     def __post_init__(self) -> None:
         if self.api_key is not None:
@@ -188,6 +194,10 @@ class ServiceConfig:
             raise InputValidationError(f"{RATE_LIMIT_ENV} must be a RateLimit.")
         if type(self.request_timeout) is not float or self.request_timeout <= 0:
             raise InputValidationError(f"{REQUEST_TIMEOUT_ENV} must be a positive number.")
+        if type(self.job_ttl) is not float or self.job_ttl <= 0:
+            raise InputValidationError(f"{JOB_TTL_ENV} must be a positive number.")
+        if type(self.max_jobs) is not int or self.max_jobs <= 0:
+            raise InputValidationError(f"{MAX_JOBS_ENV} must be a positive integer.")
         if self.vlm_provider not in SUPPORTED_PROVIDERS:
             options = ", ".join(SUPPORTED_PROVIDERS)
             raise InputValidationError(f"{VLM_PROVIDER_ENV} must be one of: {options}.")
@@ -310,5 +320,11 @@ class ServiceConfig:
             qdrant_api_key=_read(source, QDRANT_API_KEY_ENV),
             qdrant_https=_parse_bool(
                 _read(source, QDRANT_HTTPS_ENV) or "false", QDRANT_HTTPS_ENV
+            ),
+            job_ttl=_parse_float(
+                _read(source, JOB_TTL_ENV) or str(DEFAULT_JOB_TTL), JOB_TTL_ENV
+            ),
+            max_jobs=_parse_int(
+                _read(source, MAX_JOBS_ENV) or str(DEFAULT_MAX_JOBS), MAX_JOBS_ENV
             ),
         )

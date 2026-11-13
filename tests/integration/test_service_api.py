@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import importlib.metadata
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import pytest
@@ -71,6 +72,10 @@ def test_openapi_schema_lists_public_routes(client: TestClient) -> None:
         "/v1/embed",
         "/v1/rerank",
         "/v1/query",
+        "/v1/ingest",
+        "/v1/index",
+        "/v1/evaluate",
+        "/v1/jobs/{job_id}",
     }
 
 
@@ -229,7 +234,7 @@ class _FakeEmbedder:
         self, inputs: list[dict[str, str]], *, prompt: str | None = None
     ) -> np.ndarray:
         self.inputs.append(inputs)
-        return np.ones((1, self.dimensions), dtype=np.float64)
+        return np.ones((len(inputs), self.dimensions), dtype=np.float64)
 
 
 class _FakeReranker:
@@ -257,6 +262,23 @@ class _FakeStore:
     def __init__(self, results: list[SearchResult]) -> None:
         self.results = results
         self.searches: list[dict[str, object]] = []
+        self.added: list[dict[str, object]] = []
+        self.persisted: list[Path] = []
+
+    def add(
+        self,
+        embeddings: np.ndarray,
+        items: list[object],
+        *,
+        ids: list[str] | None = None,
+    ) -> None:
+        self.added.append({"embeddings": embeddings, "items": items, "ids": ids})
+
+    def persist(self, path: str | Path) -> None:
+        destination = Path(path)
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_text("persisted", encoding="utf-8")
+        self.persisted.append(destination)
 
     def search(
         self,
@@ -269,14 +291,41 @@ class _FakeStore:
         return self.results[:top_k]
 
 
+class _FakeAnalysisGenerator:
+    """Returns a valid structured analysis for pipeline ingestion."""
+
+    def __init__(self) -> None:
+        self.calls: list[str] = []
+
+    def generate(self, image: str, prompt: str, *, max_new_tokens: int = 512) -> str:
+        self.calls.append(image)
+        return (
+            '{"page_type":"diagram","title":"Architecture","summary":"A diagram.",'
+            '"entities":["encoder"],"relations":[],"important_text":[],"uncertainties":[]}'
+        )
+
+
 class _Harness:
-    def __init__(self, tmp_path: Path, *, results: list[SearchResult] | None = None, **config: object) -> None:
+    def __init__(
+        self,
+        tmp_path: Path,
+        *,
+        results: list[SearchResult] | None = None,
+        generator: Any | None = None,
+        **config: object,
+    ) -> None:
         self.media = tmp_path / "media"
         self.media.mkdir()
+        self.output = tmp_path / "output"
+        self.output.mkdir()
         self.image = self.media / "page.png"
         self.image.write_bytes(b"image-bytes")
-        self.config = ServiceConfig(media_root=self.media, **config)  # type: ignore[arg-type]
-        self.generator = _FakeGenerator()
+        self.config = ServiceConfig(
+            media_root=self.media,
+            output_root=self.output,
+            **config,  # type: ignore[arg-type]
+        )
+        self.generator = generator if generator is not None else _FakeGenerator()
         self.embedder = _FakeEmbedder()
         self.reranker = _FakeReranker()
         self.store = _FakeStore(
@@ -435,6 +484,230 @@ def test_saturated_capability_returns_503_with_retry_after(tmp_path: Path) -> No
     assert response.json()["error"] == "service_busy"
     assert response.headers["Retry-After"] == "1"
     assert not harness.generator.generate_calls
+
+
+# -- Async jobs ---------------------------------------------------------------
+
+def _wait_for_job(client: TestClient, job_id: str) -> dict[str, Any]:
+    response = client.get(f"/v1/jobs/{job_id}")
+    assert response.status_code == 200, response.text
+    return response.json()
+
+
+def test_ingest_job_reaches_completed_with_chunks(tmp_path: Path) -> None:
+    harness = _Harness(tmp_path)
+    response = harness.client.post(
+        "/v1/ingest",
+        json={"images": [str(harness.image)], "document_id": "doc-1", "no_vlm": True},
+    )
+    assert response.status_code == 202, response.text
+    body = response.json()
+    assert body["status"] == "accepted"
+
+    status = _wait_for_job(harness.client, body["job_id"])
+    assert status["status"] == "completed"
+    result = status["result"]
+    assert result["total_chunks"] == 1
+    assert result["results"][0]["document_id"] == "doc-1"
+    assert result["results"][0]["image_ref"] == str(harness.image.resolve())
+
+
+def test_ingest_expands_directories_and_ignores_other_files(tmp_path: Path) -> None:
+    harness = _Harness(tmp_path)
+    nested = harness.media / "pages"
+    nested.mkdir()
+    (nested / "b.png").write_bytes(b"b")
+    (nested / "a.jpg").write_bytes(b"a")
+    (nested / "notes.txt").write_text("ignored", encoding="utf-8")
+
+    response = harness.client.post(
+        "/v1/ingest", json={"images": [str(nested)], "no_vlm": True}
+    )
+    assert response.status_code == 202, response.text
+    status = _wait_for_job(harness.client, response.json()["job_id"])
+    assert status["status"] == "completed"
+    assert status["result"]["total_chunks"] == 2
+
+
+def test_ingest_uses_the_configured_generator(tmp_path: Path) -> None:
+    generator = _FakeAnalysisGenerator()
+    harness = _Harness(tmp_path, generator=generator)
+    response = harness.client.post("/v1/ingest", json={"images": [str(harness.image)]})
+    assert response.status_code == 202, response.text
+    status = _wait_for_job(harness.client, response.json()["job_id"])
+    assert status["status"] == "completed"
+    assert generator.calls == [str(harness.image)]
+    assert status["result"]["results"][0]["title"] == "Architecture"
+
+
+def test_ingest_rejects_missing_images(tmp_path: Path) -> None:
+    harness = _Harness(tmp_path)
+    response = harness.client.post(
+        "/v1/ingest", json={"images": [str(harness.media / "missing.png")]}
+    )
+    assert response.status_code == 400
+    assert response.json()["error"] == "invalid_request"
+
+
+def test_index_job_persists_into_the_output_root(tmp_path: Path) -> None:
+    harness = _Harness(tmp_path)
+    response = harness.client.post(
+        "/v1/index",
+        json={
+            "chunks": [
+                {"chunk_id": "c1", "text": "alpha"},
+                {"chunk_id": "c2", "text": "beta"},
+            ],
+            "store": "memory",
+            "output": "index/main",
+        },
+    )
+    assert response.status_code == 202, response.text
+    status = _wait_for_job(harness.client, response.json()["job_id"])
+    assert status["status"] == "completed"
+    assert status["result"] == {
+        "indexed": 2,
+        "store": "memory",
+        "output": "index/main",
+    }
+    assert harness.store.added[0]["ids"] == ["c1", "c2"]
+    assert harness.store.persisted[0] == (harness.output / "index" / "main").resolve()
+
+
+def test_index_rejects_output_outside_the_root(tmp_path: Path) -> None:
+    harness = _Harness(tmp_path)
+    response = harness.client.post(
+        "/v1/index",
+        json={"chunks": [{"text": "alpha"}], "output": "../escape"},
+    )
+    assert response.status_code == 400
+    assert "'..'" in response.json()["detail"]
+
+
+def test_index_rejects_chunks_without_content(tmp_path: Path) -> None:
+    harness = _Harness(tmp_path)
+    response = harness.client.post("/v1/index", json={"chunks": [{"chunk_id": "c1"}]})
+    assert response.status_code == 400
+    assert "text or an image" in response.json()["detail"]
+
+
+def test_index_rejects_an_explicit_model_size_override(tmp_path: Path) -> None:
+    harness = _Harness(tmp_path)
+    response = harness.client.post(
+        "/v1/index",
+        json={"chunks": [{"text": "alpha"}], "embed_model_size": "8b"},
+    )
+    assert response.status_code == 400
+    assert "Per-request model selection" in response.json()["detail"]
+
+
+def test_index_accepts_the_configured_model_size(tmp_path: Path) -> None:
+    harness = _Harness(tmp_path, model_size="8b")
+    response = harness.client.post(
+        "/v1/index",
+        json={"chunks": [{"text": "alpha"}], "embed_model_size": "8b"},
+    )
+    assert response.status_code == 202, response.text
+    assert _wait_for_job(harness.client, response.json()["job_id"])["status"] == "completed"
+
+
+def test_index_rejects_a_model_path_override(tmp_path: Path) -> None:
+    harness = _Harness(tmp_path)
+    response = harness.client.post(
+        "/v1/index",
+        json={"chunks": [{"text": "alpha"}], "embed_model_path": "/models/embed"},
+    )
+    assert response.status_code == 400
+    assert "Per-request model selection" in response.json()["detail"]
+
+
+def test_evaluate_job_reports_cli_compatible_metrics(tmp_path: Path) -> None:
+    harness = _Harness(tmp_path)
+    response = harness.client.post(
+        "/v1/evaluate",
+        json={
+            "cases": [
+                {"case_id": "case-1", "query": "alpha", "relevant_ids": ["c1"]},
+            ],
+            "chunks": [
+                {
+                    "chunk_id": "c1",
+                    "document_id": "doc",
+                    "source_file": "doc.pdf",
+                    "page": 1,
+                    "chunk_type": "text",
+                    "title": "Page 1",
+                    "text": "alpha",
+                }
+            ],
+            "k_values": [1],
+        },
+    )
+    assert response.status_code == 202, response.text
+    status = _wait_for_job(harness.client, response.json()["job_id"])
+    assert status["status"] == "completed"
+    result = status["result"]
+    assert result["case_count"] == 1
+    assert result["k_values"] == [1]
+    assert result["aggregate"]["recall@1"] == 1.0
+    assert result["aggregate"]["mrr@1"] == 1.0
+    assert result["latency_ms_mean"] >= 0.0
+
+
+def test_evaluate_rejects_invalid_k_values(tmp_path: Path) -> None:
+    harness = _Harness(tmp_path)
+    response = harness.client.post(
+        "/v1/evaluate",
+        json={"cases": [{"case_id": "c", "query": "q"}], "chunks": [{"text": "a"}], "k_values": [0]},
+    )
+    assert response.status_code == 422
+
+
+def test_evaluate_rejects_invalid_cases(tmp_path: Path) -> None:
+    harness = _Harness(tmp_path)
+    response = harness.client.post(
+        "/v1/evaluate",
+        json={"cases": [{"query": "q"}], "chunks": [{"text": "a"}]},
+    )
+    assert response.status_code == 400
+    assert response.json()["error"] == "invalid_request"
+
+
+def test_unknown_job_returns_404(tmp_path: Path) -> None:
+    harness = _Harness(tmp_path)
+    response = harness.client.get("/v1/jobs/does-not-exist")
+    assert response.status_code == 404
+    assert response.json()["error"] == "not_found"
+
+
+def test_delete_finished_job_then_poll_returns_404(tmp_path: Path) -> None:
+    harness = _Harness(tmp_path)
+    submitted = harness.client.post(
+        "/v1/ingest", json={"images": [str(harness.image)], "no_vlm": True}
+    )
+    job_id = submitted.json()["job_id"]
+    _wait_for_job(harness.client, job_id)
+
+    deleted = harness.client.delete(f"/v1/jobs/{job_id}")
+    assert deleted.status_code == 204
+    assert harness.client.get(f"/v1/jobs/{job_id}").status_code == 404
+
+
+def test_deleting_an_active_job_is_a_conflict(tmp_path: Path) -> None:
+    harness = _Harness(tmp_path)
+    job = harness.app.state.jobs.create("ingest")
+    response = harness.client.delete(f"/v1/jobs/{job.job_id}")
+    assert response.status_code == 409
+    assert response.json()["error"] == "job_conflict"
+
+
+def test_job_capacity_saturation_returns_503(tmp_path: Path) -> None:
+    harness = _Harness(tmp_path, max_jobs=1)
+    first = harness.app.state.jobs.create("index")
+    response = harness.client.post("/v1/ingest", json={"images": [str(harness.image)]})
+    assert response.status_code == 503
+    assert response.json()["error"] == "service_busy"
+    assert harness.app.state.jobs.get(first.job_id).status == "accepted"
 
 
 def test_lifespan_closes_the_runtime_on_shutdown() -> None:
