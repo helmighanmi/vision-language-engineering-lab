@@ -70,6 +70,19 @@ platform, which had not been published yet, plus the new HTTP service API.
 - Add OpenAI-compatible HTTP providers for generation, embedding and
   reranking alongside the Qwen3-VL providers.
 
+### Release engineering
+
+- Add a `build-wheel` CI job: build sdist/wheel, `twine check`, verify
+  the wheel contents, install it with the `service` extra into a clean
+  environment, `pip check`, and run the contract tests against the
+  installed wheel.
+- Cover CLIP lazy loading/device placement and text-embedding loading
+  error paths with deterministic tests (both modules at 100%).
+- Validate the full gate on Python 3.11, 3.12 and 3.13 and fix a
+  Python 3.11 NumPy typing issue in the OpenAI-compatible reranker
+  fallback.
+- Declare the Changelog project URL for PyPI.
+
 ## 0.3.2 — 2026-11-06: Reliability and security fixes
 
 - Fix `TextChunker` so every emitted chunk respects `max_chars`, including an

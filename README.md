@@ -1625,7 +1625,7 @@ The project uses:
 For the v0.4.0 release branch, deterministic validation reached:
 
 ```text
-732 passed
+742 passed
 2 deselected (opt-in real-model tests)
 88% coverage
 pip check: no broken requirements
@@ -1634,7 +1634,7 @@ pip-audit: no known vulnerabilities
 
 The deselected tests are resource-heavy / opt-in real-model validations rather than normal CI tests.
 
-CI validates Python 3.11, 3.12, and 3.13 while avoiding automatic multi-gigabyte model downloads in ordinary pull requests.
+CI validates Python 3.11, 3.12, and 3.13 while avoiding automatic multi-gigabyte model downloads in ordinary pull requests. A separate `build-wheel` job builds the sdist/wheel, runs `twine check`, verifies the wheel contents, installs it with the `service` extra into a clean environment, and runs the contract tests against the installed wheel.
 
 ---
 

@@ -216,8 +216,8 @@ class OpenAICompatibleRerankerProvider:
             doc_vectors = embedder.encode(prepared_docs)
             norms = np.linalg.norm(doc_vectors, axis=1, keepdims=True)
             norms = np.where(norms == 0, 1e-12, norms)
-            query_norm = np.linalg.norm(query_vector)
-            query_norm = query_norm if query_norm > 0 else 1e-12
+            query_norm_value = float(np.linalg.norm(query_vector))
+            query_norm = query_norm_value if query_norm_value > 0 else 1e-12
             scores = (doc_vectors @ query_vector) / (norms.flatten() * query_norm)
             return scores.astype(np.float32)
 
