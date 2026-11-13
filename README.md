@@ -36,7 +36,7 @@ Qwen3-VL generation
 grounded answer
 ```
 
-Contributions are welcome. See [Contributing](#20-contributing) and [`CONTRIBUTING.md`](CONTRIBUTING.md).
+Contributions are welcome. See [Contributing](#21-contributing) and [`CONTRIBUTING.md`](CONTRIBUTING.md).
 
 ---
 ### Interactive architecture map
@@ -533,6 +533,12 @@ Runtime YAML profiles:
 
 ```bash
 python -m pip install -e ".[config]"
+```
+
+HTTP service API:
+
+```bash
+python -m pip install -e ".[service]"
 ```
 
 All runtime features:
@@ -1190,7 +1196,182 @@ rather than ambiguous bare path strings.
 
 ---
 
-## 14. CLIP foundations
+## 14. HTTP service API — v0.4.0
+
+The package ships an optional FastAPI service that exposes generation,
+embedding, reranking, retrieval, ingestion, indexing and evaluation over HTTP.
+It is a thin adapter over the package APIs: no capability exists only in the
+service.
+
+### Install and run
+
+```bash
+pip install -e ".[service]"
+
+# Recommended: the CLI wraps uvicorn and reads VLM_SERVICE_* settings.
+VLM_SERVICE_MEDIA_ROOT="$PWD/data" vlm-lab serve --host 127.0.0.1 --port 8000
+
+# Equivalent direct uvicorn entry point.
+VLM_SERVICE_MEDIA_ROOT="$PWD/data" \
+  uvicorn vlm_engineering.service.app:app --host 127.0.0.1 --port 8000
+```
+
+Authentication is off when `VLM_SERVICE_API_KEY` is unset. Do not expose an
+unauthenticated instance beyond localhost. See
+[`examples/service_client.py`](examples/service_client.py) for a minimal
+`httpx` client that reuses the same environment variables.
+
+### Configuration
+
+Every setting is read from the environment at startup.
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `VLM_SERVICE_API_KEY` | unset (auth off) | Require `Authorization: Bearer <key>` or `X-API-Key: <key>` on `/v1/*`. |
+| `VLM_SERVICE_MEDIA_ROOT` | unset | Root for local image paths; unset rejects local paths. |
+| `VLM_SERVICE_OUTPUT_ROOT` | unset | Root for server-side index output; required by `/v1/index`. |
+| `VLM_SERVICE_ALLOW_REMOTE_IMAGES` | `false` | Allow `http(s)` image URLs (SSRF-sensitive; opt in). |
+| `VLM_SERVICE_MAX_CONCURRENCY` | `2` | In-flight calls per capability before `503 service_busy`. |
+| `VLM_SERVICE_REQUEST_TIMEOUT` | `120` | Seconds before an unanswered request gets `504`. |
+| `VLM_SERVICE_MAX_BODY_BYTES` | `10485760` | Request-body cap; larger bodies get `413`. |
+| `VLM_SERVICE_RATE_LIMIT` | `120/minute` | Token bucket per key/IP (`second`, `minute`, `hour`). |
+| `VLM_SERVICE_PUBLIC_METRICS` | `true` | Serve `/metrics` without a key; `false` protects it. |
+| `VLM_SERVICE_VLM_PROVIDER` | `qwen` | `qwen` or `openai-compatible`. |
+| `VLM_SERVICE_VLM_BASE_URL` | unset | OpenAI-compatible endpoint (provider mode only). |
+| `VLM_SERVICE_VLM_MODEL` | unset | OpenAI-compatible model name (provider mode only). |
+| `VLM_SERVICE_VLM_API_KEY` | unset | Key for the OpenAI-compatible endpoint. |
+| `VLM_SERVICE_MODEL_SIZE` | `2b` preset | Generative preset (`2b`, `4b`, `8b`). |
+| `VLM_SERVICE_MODEL_ID` | unset | Explicit Hugging Face model ID. |
+| `VLM_SERVICE_MODEL_PATH` | unset | Local model directory. |
+| `VLM_SERVICE_STORE` | `memory` | Retrieval store: `memory`, `sqlite-vec`, `qdrant`. |
+| `VLM_SERVICE_STORE_PATH` | `index` | Relative path for `sqlite-vec` (inside the output root). |
+| `VLM_SERVICE_QDRANT_HOST` / `_PORT` | `localhost` / `6333` | Qdrant connection. |
+| `VLM_SERVICE_QDRANT_COLLECTION` | `vlm_engineering` | Qdrant collection name. |
+| `VLM_SERVICE_QDRANT_API_KEY` | unset | Qdrant API key. |
+| `VLM_SERVICE_QDRANT_HTTPS` | `false` | Use HTTPS for Qdrant. |
+| `VLM_SERVICE_JOB_TTL` | `900` | Seconds a finished job stays pollable. |
+| `VLM_SERVICE_MAX_JOBS` | `256` | Job registry capacity; oldest finished jobs are evicted. |
+| `VLM_SERVICE_RUNTIME_CONFIG` | unset | Optional YAML runtime profile path. |
+
+Configure at most one of `MODEL_SIZE`, `MODEL_ID`, `MODEL_PATH`. Per-request
+model overrides are rejected with `400` because the service serves one
+configured model per capability.
+
+### Endpoints
+
+```text
+GET  /health                 liveness; no model access
+GET  /ready                  built backends + vector-store reachability
+GET  /metrics                Prometheus text exposition
+
+GET  /v1/models              configured catalog
+POST /v1/describe            image -> text (alias: /v1/analyze)
+POST /v1/embed               text/image -> normalized vectors
+POST /v1/rerank              rank candidate documents
+POST /v1/query               embed -> search -> rerank -> answer
+
+POST /v1/ingest              202 + job id (images -> VisualChunk JSONL)
+POST /v1/index               202 + job id (chunks -> vector store)
+POST /v1/evaluate            202 + job id (Recall@K, nDCG@K, MRR)
+GET  /v1/jobs/{job_id}       accepted | running | completed | failed
+DELETE /v1/jobs/{job_id}     204 for finished jobs; 409 while active
+```
+
+### Examples
+
+```bash
+# Liveness and catalog.
+curl -s localhost:8000/health
+curl -s localhost:8000/v1/models
+
+# Local paths must stay inside VLM_SERVICE_MEDIA_ROOT.
+curl -s -X POST localhost:8000/v1/describe \
+  -H 'Content-Type: application/json' \
+  -d '{"image": "diagram.png", "prompt": "Describe this diagram."}'
+
+# Embeddings and reranking.
+curl -s -X POST localhost:8000/v1/embed \
+  -H 'Content-Type: application/json' \
+  -d '{"text": "architecture diagram"}'
+
+curl -s -X POST localhost:8000/v1/rerank \
+  -H 'Content-Type: application/json' \
+  -d '{"query": "encoder", "documents": [{"text": "a"}, {"text": "b"}]}'
+
+# Retrieval + answer through the configured service-level store.
+curl -s -X POST localhost:8000/v1/query \
+  -H 'Content-Type: application/json' \
+  -d '{"question": "What does the encoder do?"}'
+
+# Async ingestion, polling and cleanup.
+JOB=$(curl -s -X POST localhost:8000/v1/ingest \
+  -H 'Content-Type: application/json' \
+  -d '{"images": ["diagram.png"], "no_vlm": true}' | python -c 'import json,sys; print(json.load(sys.stdin)["job_id"])')
+curl -s "localhost:8000/v1/jobs/$JOB"
+curl -s -X DELETE "localhost:8000/v1/jobs/$JOB"
+```
+
+With authentication configured:
+
+```bash
+VLM_SERVICE_API_KEY=secret vlm-lab serve --port 8000
+
+curl -s -H 'Authorization: Bearer secret' localhost:8000/v1/models
+curl -s -H 'X-API-Key: secret' localhost:8000/v1/models
+```
+
+`/health` and `/ready` remain public, so orchestrator probes work while auth
+is enabled. `/metrics` is public by default; set
+`VLM_SERVICE_PUBLIC_METRICS=false` to require the same key.
+
+### Errors, logs and metrics
+
+Failures share one shape:
+
+```json
+{"error": "invalid_request", "detail": "..."}
+```
+
+Status codes: `400` bad input/policy, `401` auth, `404` unknown route/job,
+`409` job conflict, `413` body too large, `422` schema validation, `429` rate
+limit (`Retry-After`), `500` unexpected, `503` busy/unavailable store,
+`504` request deadline. Tracebacks and backend internals are never returned.
+
+Every response carries `X-Request-ID`; a safe caller-supplied value is reused.
+Logs are one JSON line per request (id, method, route template, status,
+duration) with no headers, bodies or API keys. `/metrics` exposes
+`vlm_service_requests_total`, request latency sum/count/max, in-flight and
+uptime using route templates.
+
+### Process model
+
+The service is designed for **one uvicorn process per replica**:
+
+- Jobs, rate-limit buckets and metrics live in memory; they reset on restart
+  and are not shared between workers or replicas.
+- `POST /v1/ingest`, `/v1/index` and `/v1/evaluate` survive the request, but
+  not a process restart. Use an external queue for durable batch work.
+- The request deadline releases the caller; it cannot cancel a synchronous
+  GPU call already running in a worker thread.
+- For multiple replicas, put authentication, distributed rate limiting,
+  scraping and load balancing at the gateway, and point Prometheus at each
+  replica.
+
+### Docker
+
+```bash
+docker compose up vlm-service          # http://localhost:8000
+VLM_SERVICE_API_KEY=secret docker compose up vlm-service
+```
+
+The compose service passes `VLM_SERVICE_*` variables into the container and
+mounts `./data` (read-only media), `./configs`, `./models` and a named
+`vlm-output` volume. The image installs the `service` extra and exposes port
+`8000`.
+
+---
+
+## 15. CLIP foundations
 
 ```python
 from PIL import Image
@@ -1215,7 +1396,7 @@ CLIP is useful for learning the shared image/text embedding-space idea that mode
 
 ---
 
-## 15. Examples and application scenarios
+## 16. Examples and application scenarios
 
 Small API examples:
 
@@ -1227,6 +1408,7 @@ examples/qwen_local_model.py
 examples/structured_visual_chunk.py
 examples/text_only_visual_rag.py
 examples/qwen_multimodal_retrieval.py
+examples/service_client.py
 ```
 
 End-to-end scenarios:
@@ -1247,7 +1429,7 @@ See [`scenarios/README.md`](scenarios/README.md) for copy/paste commands, model 
 
 ---
 
-## 16. Notebooks
+## 17. Notebooks
 
 Notebooks are analysis clients, not the implementation layer:
 
@@ -1262,7 +1444,7 @@ Reusable logic belongs under `src/vlm_engineering/` and can be used without Jupy
 
 ---
 
-## 17. Docker and Docker Compose
+## 18. Docker and Docker Compose
 
 The repository includes `Dockerfile` and `docker-compose.yml` for reproducible CLI/container workflows.
 
@@ -1281,12 +1463,38 @@ docker compose run --rm vlm-lab --help
 docker compose run --rm vlm-lab models
 ```
 
+### HTTP service
+
+The image installs the `service` extra and exposes port `8000`:
+
+```bash
+docker compose up vlm-service
+
+curl -s localhost:8000/health
+curl -s localhost:8000/v1/models
+```
+
+Authentication is disabled unless a key is provided:
+
+```bash
+VLM_SERVICE_API_KEY=secret docker compose up vlm-service
+
+curl -s -H 'Authorization: Bearer secret' localhost:8000/v1/models
+```
+
+The compose service sets `VLM_SERVICE_MEDIA_ROOT=/app/data`,
+`VLM_SERVICE_OUTPUT_ROOT=/app/output` and mounts a named `vlm-output`
+volume. Override `VLM_SERVICE_PORT` to change the published port and any
+other `VLM_SERVICE_*` variable from the [HTTP service section](#14-http-service-api--v040).
+
 ### Mounted directories
 
 ```text
 Host                       Container
-./data                     /app/data
+./data                     /app/data (read-only)
+./configs                  /app/configs (read-only)
 ./models                   /app/models
+vlm-output named volume    /app/output
 hf-cache named volume      /home/appuser/.cache/huggingface
 ```
 
@@ -1373,6 +1581,13 @@ docker run --rm \
   models
 ```
 
+```bash
+docker run --rm -p 8000:8000 \
+  -v "$PWD/data:/app/data:ro" \
+  vision-language-engineering-lab:0.4.0 \
+  serve --host 0.0.0.0 --port 8000
+```
+
 ### GPU execution
 
 The checked-in Docker setup is a portable baseline and does not force a particular GPU runtime.
@@ -1381,7 +1596,7 @@ Configure the appropriate container GPU runtime on the host and verify GPU visib
 
 ---
 
-## 18. Quality gates and compatibility validation
+## 19. Quality gates and compatibility validation
 
 Before pushing changes:
 
@@ -1410,9 +1625,9 @@ The project uses:
 For the v0.4.0 release branch, deterministic validation reached:
 
 ```text
-670 passed
+732 passed
 2 deselected (opt-in real-model tests)
-86% coverage
+88% coverage
 pip check: no broken requirements
 pip-audit: no known vulnerabilities
 ```
@@ -1423,7 +1638,7 @@ CI validates Python 3.11, 3.12, and 3.13 while avoiding automatic multi-gigabyte
 
 ---
 
-## 19. Troubleshooting
+## 20. Troubleshooting
 
 ### `ModuleNotFoundError`
 
@@ -1555,7 +1770,7 @@ Move to larger models only when evaluation data demonstrates that the quality ga
 
 ---
 
-## 20. Contributing
+## 21. Contributing
 
 **Contributions are welcome.**
 
@@ -1617,7 +1832,7 @@ Questions, feature proposals, documentation improvements, and bug reports are we
 
 ---
 
-## 21. Documentation
+## 22. Documentation
 
 - `docs/model-loading.md` — model presets, Hub/custom/local modes and troubleshooting
 - `docs/qwen-model-selection.md` — model-size selection and resource guidance
@@ -1632,7 +1847,7 @@ The README and Markdown documentation are the operational source of truth for th
 
 ---
 
-## 22. Repository structure
+## 23. Repository structure
 
 ```text
 vision-language-engineering-lab/
@@ -1663,7 +1878,7 @@ vision-language-engineering-lab/
 
 ---
 
-## 23. Implemented vs roadmap
+## 24. Implemented vs roadmap
 
 ### Implemented
 
@@ -1680,6 +1895,10 @@ vision-language-engineering-lab/
 - project-local model downloads
 - local/offline execution
 - runtime YAML validation
+- interchangeable memory / sqlite-vec / Qdrant vector stores
+- ingestion, indexing and retrieval evaluation CLI workflows
+- OpenAI-compatible generation/embedding/reranking providers
+- HTTP service API with auth, rate limiting, jobs, metrics and readiness
 - CLI workflows
 - Docker workflows
 - Python 3.11–3.13 CI
@@ -1689,16 +1908,13 @@ vision-language-engineering-lab/
 
 Potential future directions include:
 
-- persistent vector database adapters
-- retrieval/RAG evaluation and benchmarks
 - multi-image and richer multimodal sessions
 - video / temporal reasoning
 - richer document parsing and OCR workflows
 - visual grounding / bounding boxes
 - quantized / low-resource deployment
-- async and streaming interfaces
-- serving/API layer
-- observability and caching
+- streaming responses and durable/distributed job queues
+- distributed rate limiting and shared observability
 - visual-agent perception workflows
 
 Roadmap items are not part of the current public API until implemented and validated.

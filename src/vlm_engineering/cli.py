@@ -19,7 +19,7 @@ from .documents.chunking import VisualChunkBuilder
 from .documents.schemas import NativePageContent
 from .documents.visual_analysis import analyze_visual_document
 from .evaluation import evaluate, load_chunks, load_evaluation_cases
-from .exceptions import InputValidationError, VLMEngineeringError
+from .exceptions import InputValidationError, OptionalDependencyError, VLMEngineeringError
 from .inputs import normalize_input
 from .operational import backend_errors
 from .qwen.downloader import download_model_snapshot
@@ -215,6 +215,26 @@ def cmd_validate_config(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_serve(args: argparse.Namespace) -> int:
+    """Run the HTTP service with uvicorn using the ``VLM_SERVICE_*`` settings."""
+    try:
+        import uvicorn
+    except ImportError as exc:  # pragma: no cover - depends on the environment
+        raise OptionalDependencyError(
+            "serve requires the [service] extra: "
+            'pip install "vision-language-engineering-lab[service]"'
+        ) from exc
+
+    uvicorn.run(
+        "vlm_engineering.service.app:app",
+        host=args.host,
+        port=args.port,
+        reload=args.reload,
+        log_level=args.log_level,
+    )
+    return 0
+
+
 def cmd_evaluate(args: argparse.Namespace) -> int:
     """Evaluate retrieval quality against labelled chunk IDs."""
     if not args.k or any(type(value) is not int or value <= 0 for value in args.k):
@@ -376,6 +396,25 @@ def build_parser() -> argparse.ArgumentParser:
     validate = sub.add_parser("validate-config", help="Validate a YAML profile without loading models.")
     validate.add_argument("path")
     validate.set_defaults(func=cmd_validate_config)
+
+    serve = sub.add_parser(
+        "serve",
+        help="Serve the HTTP API (requires the [service] extra).",
+    )
+    serve.add_argument("--host", default="127.0.0.1", help="Bind address; defaults to 127.0.0.1.")
+    serve.add_argument("--port", type=int, default=8000, help="Bind port; defaults to 8000.")
+    serve.add_argument(
+        "--reload",
+        action="store_true",
+        help="Reload on source changes (development only).",
+    )
+    serve.add_argument(
+        "--log-level",
+        default="info",
+        choices=("critical", "error", "warning", "info", "debug", "trace"),
+        help="uvicorn log level; defaults to info.",
+    )
+    serve.set_defaults(func=cmd_serve)
 
     evaluate_parser = sub.add_parser(
         "evaluate",

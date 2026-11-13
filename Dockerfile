@@ -28,17 +28,20 @@ COPY pyproject.toml README.md LICENSE ./
 COPY src ./src
 
 RUN python -m pip install --upgrade pip setuptools wheel \
-    && python -m pip install ".[qwen,qwen-retrieval,config]"
+    && python -m pip install ".[qwen,qwen-retrieval,config,service]"
 
 RUN mkdir -p \
     /app/data \
     /app/models \
+    /app/output \
     /home/appuser/.cache/huggingface \
     && chown -R appuser:appuser \
     /app \
     /home/appuser
 
 USER appuser
+
+EXPOSE 8000
 
 ENTRYPOINT ["vlm-lab"]
 CMD ["--help"]

@@ -61,3 +61,11 @@ def test_docker_excludes_local_weights():
     assert "models/" in (ROOT / ".dockerignore").read_text().splitlines()
     assert "models/" in (ROOT / ".gitignore").read_text().splitlines()
     assert "qwen-retrieval" in (ROOT / "Dockerfile").read_text()
+
+
+def test_docker_image_includes_the_service_api():
+    dockerfile = (ROOT / "Dockerfile").read_text()
+    compose = (ROOT / "docker-compose.yml").read_text()
+    assert "config,service" in dockerfile
+    assert "EXPOSE 8000" in dockerfile
+    assert "vlm-service:" in compose

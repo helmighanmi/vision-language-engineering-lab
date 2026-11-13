@@ -43,6 +43,14 @@ platform, which had not been published yet, plus the new HTTP service API.
   `X-Request-ID`, plus Prometheus metrics at `/metrics`
   (`VLM_SERVICE_PUBLIC_METRICS`) and a `/ready` probe that reports
   built backends and store reachability.
+- Add `vlm-lab serve --host/--port/--reload/--log-level` as the
+  supported entry point (a thin uvicorn wrapper) and document every
+  `VLM_SERVICE_*` setting, endpoint and error code in the README.
+- Install the `service` extra in the Docker image, expose port `8000`
+  and add a `vlm-service` compose service with the service environment,
+  writable output volume and a `/health` healthcheck.
+- Add `examples/service_client.py` as a minimal authenticated client.
+- Record the service's single-process boundaries in ADR-004.
 - Normalize every failure into one `ErrorResponse` shape (400/401/404/
   409/413/422/429/500/503/504) without leaking tracebacks or backend
   internals.

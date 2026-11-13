@@ -4,29 +4,61 @@
 # Past Role: Researcher in Applied Mathematics
 # Research Profile: https://www.researchgate.net/profile/Ghanmi-Helmi
 
+x-vlm-common: &vlm-common
+  build:
+    context: .
+    args:
+      PYTHON_VERSION: ${PYTHON_VERSION:-3.12}
+
+  image: vision-language-engineering-lab:local
+
+  environment:
+    HF_HOME: /home/appuser/.cache/huggingface
+    HF_TOKEN: ${HF_TOKEN:-}
+    HF_HUB_OFFLINE: ${HF_HUB_OFFLINE:-0}
+    VLM_SERVICE_API_KEY: ${VLM_SERVICE_API_KEY:-}
+    VLM_SERVICE_MEDIA_ROOT: /app/data
+    VLM_SERVICE_OUTPUT_ROOT: /app/output
+    VLM_SERVICE_STORE: ${VLM_SERVICE_STORE:-memory}
+    VLM_SERVICE_RATE_LIMIT: ${VLM_SERVICE_RATE_LIMIT:-120/minute}
+    VLM_SERVICE_ALLOW_REMOTE_IMAGES: ${VLM_SERVICE_ALLOW_REMOTE_IMAGES:-false}
+
+  volumes:
+    - ./models:/app/models
+    - ./data:/app/data:ro
+    - ./configs:/app/configs:ro
+    - vlm-output:/app/output
+    - hf-cache:/home/appuser/.cache/huggingface
+
 services:
   vlm-lab:
-    build:
-      context: .
-      args:
-        PYTHON_VERSION: ${PYTHON_VERSION:-3.12}
-
-    image: vision-language-engineering-lab:local
-
-    environment:
-      HF_HOME: /home/appuser/.cache/huggingface
-      HF_TOKEN: ${HF_TOKEN:-}
-      HF_HUB_OFFLINE: ${HF_HUB_OFFLINE:-0}
-
-    volumes:
-      - ./models:/app/models
-      - ./data:/app/data:ro
-      - ./configs:/app/configs:ro
-      - hf-cache:/home/appuser/.cache/huggingface
-
+    <<: *vlm-common
     command:
       - "--help"
 
+  vlm-service:
+    <<: *vlm-common
+    command:
+      - "serve"
+      - "--host"
+      - "0.0.0.0"
+      - "--port"
+      - "8000"
+    ports:
+      - "${VLM_SERVICE_PORT:-8000}:8000"
+    healthcheck:
+      test:
+        - "CMD"
+        - "python"
+        - "-c"
+        - >-
+          import urllib.request;
+          urllib.request.urlopen("http://127.0.0.1:8000/health", timeout=2)
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
 
 volumes:
   hf-cache:
+  vlm-output:

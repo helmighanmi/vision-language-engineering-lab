@@ -59,6 +59,7 @@ def test_cli_exposes_expected_commands() -> None:
         "evaluate",
         "ingest",
         "index",
+        "serve",
     }
 
 
