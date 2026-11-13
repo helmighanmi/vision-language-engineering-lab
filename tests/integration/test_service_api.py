@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import asyncio
 import importlib.metadata
+import re
+import time
 from pathlib import Path
 from typing import Any
 
@@ -32,7 +34,7 @@ from fastapi.testclient import TestClient  # noqa: E402
 
 from vlm_engineering.service import create_app  # noqa: E402
 from vlm_engineering.service.app import _validation_error_response  # noqa: E402
-from vlm_engineering.service.config import ServiceConfig  # noqa: E402
+from vlm_engineering.service.config import RateLimit, ServiceConfig  # noqa: E402
 from vlm_engineering.service.routers.query import NO_EVIDENCE_ANSWER  # noqa: E402
 from vlm_engineering.service.runtime import ServiceRuntime  # noqa: E402
 from vlm_engineering.service.schemas import package_version  # noqa: E402
@@ -66,6 +68,7 @@ def test_openapi_schema_lists_public_routes(client: TestClient) -> None:
     assert set(paths) == {
         "/health",
         "/ready",
+        "/metrics",
         "/v1/models",
         "/v1/describe",
         "/v1/analyze",
@@ -264,6 +267,9 @@ class _FakeStore:
         self.searches: list[dict[str, object]] = []
         self.added: list[dict[str, object]] = []
         self.persisted: list[Path] = []
+
+    def count(self) -> int:
+        return len(self.added)
 
     def add(
         self,
@@ -726,3 +732,121 @@ def test_lifespan_closes_the_runtime_on_shutdown() -> None:
         assert client.get("/health").status_code == 200
 
     assert fake.unload_calls == 1
+
+
+# -- Phase 4: readiness, metrics, auth, rate limiting, guards ----------------
+
+def test_ready_reports_backends_and_store(tmp_path: Path) -> None:
+    harness = _Harness(tmp_path)
+    response = harness.client.get("/ready")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "ok"
+    assert body["store"] == {"kind": "memory", "ready": True, "detail": None}
+    assert body["backends"] == {"generator": True, "embedder": True, "reranker": True}
+
+
+def test_ready_reports_degraded_when_the_store_fails(tmp_path: Path) -> None:
+    class _FailingStore:
+        def count(self) -> int:
+            raise RuntimeError("store offline")
+
+    harness = _Harness(tmp_path)
+    harness.app.state.runtime = ServiceRuntime(
+        harness.config, stores={"memory": _FailingStore()}
+    )
+    response = harness.client.get("/ready")
+    assert response.status_code == 503
+    body = response.json()
+    assert body["status"] == "degraded"
+    assert body["store"] == {
+        "kind": "memory",
+        "ready": False,
+        "detail": "RuntimeError",
+    }
+
+
+def test_metrics_are_public_by_default(client: TestClient) -> None:
+    client.get("/health")
+    response = client.get("/metrics")
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/plain; version=0.0.4")
+    assert 'vlm_service_requests_total{method="GET",path="/health",status="200"} 1' in response.text
+
+
+def test_metrics_require_the_api_key_when_private() -> None:
+    app = create_app(ServiceConfig(api_key="secret", public_metrics=False))
+    client = TestClient(app)
+    assert client.get("/metrics").status_code == 401
+    assert client.get("/metrics", headers={"X-API-Key": "secret"}).status_code == 200
+
+
+def test_auth_rejects_missing_and_wrong_keys() -> None:
+    client = TestClient(create_app(ServiceConfig(api_key="secret")))
+    missing = client.get("/v1/models")
+    assert missing.status_code == 401
+    assert missing.headers["www-authenticate"] == "Bearer"
+    assert missing.json()["error"] == "unauthorized"
+
+    wrong = client.get("/v1/models", headers={"Authorization": "Bearer nope"})
+    assert wrong.status_code == 401
+    assert wrong.json()["error"] == "unauthorized"
+
+
+def test_auth_accepts_bearer_and_x_api_key() -> None:
+    client = TestClient(create_app(ServiceConfig(api_key="secret")))
+    bearer = client.get("/v1/models", headers={"Authorization": "Bearer secret"})
+    assert bearer.status_code == 200
+    api_key = client.get("/v1/models", headers={"X-API-Key": "secret"})
+    assert api_key.status_code == 200
+
+
+def test_health_and_ready_stay_public_when_auth_is_on() -> None:
+    client = TestClient(create_app(ServiceConfig(api_key="secret")))
+    assert client.get("/health").status_code == 200
+    assert client.get("/ready").status_code == 200
+
+
+def test_rate_limit_returns_429_with_retry_after() -> None:
+    client = TestClient(create_app(ServiceConfig(rate_limit=RateLimit(2, 60))))
+    assert client.get("/v1/models").status_code == 200
+    assert client.get("/v1/models").status_code == 200
+    limited = client.get("/v1/models")
+    assert limited.status_code == 429
+    assert limited.json()["error"] == "rate_limited"
+    assert 1 <= int(limited.headers["Retry-After"]) <= 60
+    # Probes are exempt from the limiter.
+    assert client.get("/health").status_code == 200
+    assert client.get("/ready").status_code == 200
+
+
+def test_request_body_over_the_cap_is_413() -> None:
+    client = TestClient(create_app(ServiceConfig(max_body_bytes=64)))
+    response = client.post("/v1/describe", json={"image": "x" * 256})
+    assert response.status_code == 413
+    assert response.json()["error"] == "payload_too_large"
+
+
+def test_every_response_carries_a_request_id(client: TestClient) -> None:
+    response = client.get("/health")
+    assert re.fullmatch(r"[0-9a-f]{32}", response.headers["X-Request-ID"])
+
+    echoed = client.get("/health", headers={"X-Request-ID": "trace-42"})
+    assert echoed.headers["X-Request-ID"] == "trace-42"
+
+    replaced = client.get("/health", headers={"X-Request-ID": "not valid"})
+    assert re.fullmatch(r"[0-9a-f]{32}", replaced.headers["X-Request-ID"])
+
+
+def test_a_slow_handler_hits_the_request_deadline(tmp_path: Path) -> None:
+    class _SlowGenerator(_FakeGenerator):
+        def generate(self, images: list[str], prompt: str, **kwargs: object) -> str:
+            time.sleep(0.5)
+            return "too late"
+
+    harness = _Harness(tmp_path, generator=_SlowGenerator(), request_timeout=0.01)
+    response = harness.client.post(
+        "/v1/describe", json={"image": str(harness.image), "prompt": "Describe."}
+    )
+    assert response.status_code == 504
+    assert response.json()["error"] == "request_timeout"

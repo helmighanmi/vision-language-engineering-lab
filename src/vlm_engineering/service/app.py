@@ -11,11 +11,15 @@ from __future__ import annotations
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 
 from .config import ServiceConfig
 from .errors import register_error_handlers, validation_error_response
 from .jobs import JobRegistry
+from .logging import RequestContextMiddleware, configure_json_logging
+from .metrics import MetricsRegistry
+from .middleware import BodyLimitMiddleware, RequestTimeoutMiddleware
+from .ratelimit import RateLimitMiddleware
 from .routers import (
     describe,
     embed,
@@ -30,6 +34,7 @@ from .routers import (
 )
 from .runtime import ServiceRuntime
 from .schemas import package_version
+from .security import require_api_key
 
 _SERVICE_TITLE = "Vision-Language Engineering Lab service"
 
@@ -49,8 +54,10 @@ async def _lifespan(application: FastAPI) -> AsyncIterator[None]:
 
 
 def create_app(config: ServiceConfig | None = None) -> FastAPI:
-    """Build the FastAPI application with health, catalog routes and runtime wiring."""
+    """Build the FastAPI application with routes, guards and runtime wiring."""
     service_config = config or ServiceConfig.from_env()
+    logger = configure_json_logging()
+    metrics = MetricsRegistry()
     application = FastAPI(
         title=_SERVICE_TITLE,
         version=package_version(),
@@ -63,16 +70,19 @@ def create_app(config: ServiceConfig | None = None) -> FastAPI:
         ttl_seconds=service_config.job_ttl,
         max_jobs=service_config.max_jobs,
     )
+    application.state.metrics = metrics
+
+    # add_middleware order is inner-to-outer, so request ids, logging and
+    # metrics wrap the guards and every route, including rejections.
+    application.add_middleware(RequestTimeoutMiddleware, seconds=service_config.request_timeout)
+    application.add_middleware(RateLimitMiddleware, config=service_config)
+    application.add_middleware(BodyLimitMiddleware, max_bytes=service_config.max_body_bytes)
+    application.add_middleware(RequestContextMiddleware, metrics=metrics, logger=logger)
+
+    protected = [Depends(require_api_key)]
     application.include_router(health.router)
-    application.include_router(models.router)
-    application.include_router(describe.router)
-    application.include_router(embed.router)
-    application.include_router(rerank.router)
-    application.include_router(query.router)
-    application.include_router(ingest.router)
-    application.include_router(index.router)
-    application.include_router(evaluate.router)
-    application.include_router(jobs.router)
+    for module in (models, describe, embed, rerank, query, ingest, index, evaluate, jobs):
+        application.include_router(module.router, dependencies=protected)
     return application
 
 

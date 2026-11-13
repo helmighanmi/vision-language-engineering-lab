@@ -42,6 +42,27 @@ class HealthResponse(BaseModel):
     version: str = Field(default_factory=package_version)
 
 
+class StoreReadiness(BaseModel):
+    """Result of probing the configured vector store."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    kind: str
+    ready: bool
+    detail: Optional[str] = None
+
+
+class ReadinessResponse(BaseModel):
+    """Readiness report; probing never runs inference."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    status: str = "ok"
+    version: str = Field(default_factory=package_version)
+    backends: dict[str, bool] = Field(default_factory=dict)
+    store: StoreReadiness
+
+
 # -- Models -----------------------------------------------------------------
 
 class ModelInfo(BaseModel):

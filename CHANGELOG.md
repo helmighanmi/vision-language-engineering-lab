@@ -34,8 +34,18 @@ platform, which had not been published yet, plus the new HTTP service API.
   references to their configured roots, including symlink escapes.
 - Add per-capability admission control: saturated capabilities answer
   `503 service_busy` with `Retry-After` instead of queueing without bound.
-- Normalize every failure into one `ErrorResponse` shape (400/404/409/
-  422/429/500/503) without leaking tracebacks or backend internals.
+- Add opt-in API-key authentication (`VLM_SERVICE_API_KEY`), a
+  process-local token-bucket rate limit (`VLM_SERVICE_RATE_LIMIT`,
+  `429` + `Retry-After`), request-body caps
+  (`VLM_SERVICE_MAX_BODY_BYTES`, `413`) and per-request deadlines
+  (`VLM_SERVICE_REQUEST_TIMEOUT`, `504`).
+- Add one JSON access log line per request with a propagated
+  `X-Request-ID`, plus Prometheus metrics at `/metrics`
+  (`VLM_SERVICE_PUBLIC_METRICS`) and a `/ready` probe that reports
+  built backends and store reachability.
+- Normalize every failure into one `ErrorResponse` shape (400/401/404/
+  409/413/422/429/500/503/504) without leaking tracebacks or backend
+  internals.
 
 ### Retrieval and ingestion platform
 

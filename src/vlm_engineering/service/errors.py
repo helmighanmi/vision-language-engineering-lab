@@ -30,15 +30,21 @@ from ..exceptions import (
 from .concurrency import ServiceBusyError
 from .jobs import JobNotFoundError, JobStateError
 from .schemas import ErrorResponse
+from .security import AuthenticationError
 
 logger = logging.getLogger(__name__)
 
 ExceptionHandler = Callable[[Request, Any], Any]
 
 
-def _error_response(status_code: int, error: str, detail: str | None) -> JSONResponse:
+def build_error_response(status_code: int, error: str, detail: str | None) -> JSONResponse:
+    """Build the documented ``ErrorResponse`` payload for any status code."""
     payload = ErrorResponse(error=error, detail=detail)
     return JSONResponse(status_code=status_code, content=payload.model_dump())
+
+
+def _error_response(status_code: int, error: str, detail: str | None) -> JSONResponse:
+    return build_error_response(status_code, error, detail)
 
 
 def _constant(
@@ -78,6 +84,17 @@ async def busy_error_response(_request: Request, exc: Exception) -> JSONResponse
     return response
 
 
+async def unauthorized_response(_request: Request, exc: Exception) -> JSONResponse:
+    """Report a missing or invalid API key and advertise the auth scheme."""
+    response = _error_response(
+        status.HTTP_401_UNAUTHORIZED,
+        "unauthorized",
+        str(exc) or "Missing or invalid API key.",
+    )
+    response.headers["WWW-Authenticate"] = "Bearer"
+    return response
+
+
 async def unexpected_error_response(_request: Request, exc: Exception) -> JSONResponse:
     """Log the failure and return a generic 500 without leaking internals."""
     logger.error("Unhandled service error", exc_info=exc)
@@ -102,6 +119,7 @@ def exception_handlers() -> dict[type[Exception], ExceptionHandler]:
         ImportError: _constant(status.HTTP_503_SERVICE_UNAVAILABLE, "dependency_unavailable"),
         ModelLoadError: _constant(status.HTTP_503_SERVICE_UNAVAILABLE, "model_unavailable"),
         ServiceBusyError: busy_error_response,
+        AuthenticationError: unauthorized_response,
         JobNotFoundError: _constant(status.HTTP_404_NOT_FOUND, "not_found"),
         JobStateError: _constant(status.HTTP_409_CONFLICT, "job_conflict"),
         VLMEngineeringError: _constant(status.HTTP_400_BAD_REQUEST, "request_error"),
