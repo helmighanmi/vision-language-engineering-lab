@@ -20,8 +20,26 @@ x-vlm-common: &vlm-common
     VLM_SERVICE_MEDIA_ROOT: /app/data
     VLM_SERVICE_OUTPUT_ROOT: /app/output
     VLM_SERVICE_STORE: ${VLM_SERVICE_STORE:-memory}
+    VLM_SERVICE_STORE_PATH: ${VLM_SERVICE_STORE_PATH:-index}
     VLM_SERVICE_RATE_LIMIT: ${VLM_SERVICE_RATE_LIMIT:-120/minute}
     VLM_SERVICE_ALLOW_REMOTE_IMAGES: ${VLM_SERVICE_ALLOW_REMOTE_IMAGES:-false}
+    VLM_SERVICE_MAX_CONCURRENCY: ${VLM_SERVICE_MAX_CONCURRENCY:-2}
+    VLM_SERVICE_REQUEST_TIMEOUT: ${VLM_SERVICE_REQUEST_TIMEOUT:-120}
+    VLM_SERVICE_VLM_PROVIDER: ${VLM_SERVICE_VLM_PROVIDER:-qwen}
+    VLM_SERVICE_VLM_BASE_URL: ${VLM_SERVICE_VLM_BASE_URL:-}
+    VLM_SERVICE_VLM_MODEL: ${VLM_SERVICE_VLM_MODEL:-}
+    VLM_SERVICE_VLM_API_KEY: ${VLM_SERVICE_VLM_API_KEY:-}
+    VLM_SERVICE_MODEL_SIZE: ${VLM_SERVICE_MODEL_SIZE:-}
+    VLM_SERVICE_MODEL_ID: ${VLM_SERVICE_MODEL_ID:-}
+    VLM_SERVICE_MODEL_PATH: ${VLM_SERVICE_MODEL_PATH:-}
+    VLM_SERVICE_RUNTIME_CONFIG: ${VLM_SERVICE_RUNTIME_CONFIG:-}
+    VLM_SERVICE_QDRANT_HOST: ${VLM_SERVICE_QDRANT_HOST:-localhost}
+    VLM_SERVICE_QDRANT_PORT: ${VLM_SERVICE_QDRANT_PORT:-6333}
+    VLM_SERVICE_QDRANT_COLLECTION: ${VLM_SERVICE_QDRANT_COLLECTION:-vlm_engineering}
+    VLM_SERVICE_QDRANT_API_KEY: ${VLM_SERVICE_QDRANT_API_KEY:-}
+    VLM_SERVICE_QDRANT_HTTPS: ${VLM_SERVICE_QDRANT_HTTPS:-false}
+    VLM_SERVICE_JOB_TTL: ${VLM_SERVICE_JOB_TTL:-900}
+    VLM_SERVICE_MAX_JOBS: ${VLM_SERVICE_MAX_JOBS:-256}
 
   volumes:
     - ./models:/app/models
@@ -31,6 +49,19 @@ x-vlm-common: &vlm-common
     - hf-cache:/home/appuser/.cache/huggingface
 
 services:
+  qdrant:
+    image: qdrant/qdrant:v1.13
+    ports:
+      - "${VLM_SERVICE_QDRANT_PORT:-6333}:6333"
+    volumes:
+      - qdrant-storage:/storage
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:6333/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
   vlm-lab:
     <<: *vlm-common
     command:
@@ -46,6 +77,9 @@ services:
       - "8000"
     ports:
       - "${VLM_SERVICE_PORT:-8000}:8000"
+    depends_on:
+      qdrant:
+        condition: service_healthy
     healthcheck:
       test:
         - "CMD"
@@ -62,3 +96,4 @@ services:
 volumes:
   hf-cache:
   vlm-output:
+  qdrant-storage:

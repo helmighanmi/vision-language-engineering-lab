@@ -12,6 +12,7 @@ import asyncio
 import importlib.metadata
 import re
 import time
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
@@ -301,10 +302,12 @@ class _FakeAnalysisGenerator:
     """Returns a valid structured analysis for pipeline ingestion."""
 
     def __init__(self) -> None:
-        self.calls: list[str] = []
+        self.calls: list[list[str]] = []
 
-    def generate(self, image: str, prompt: str, *, max_new_tokens: int = 512) -> str:
-        self.calls.append(image)
+    def generate(
+        self, images: Sequence[str | Path], prompt: str, *, max_new_tokens: int = 512
+    ) -> str:
+        self.calls.append([str(image) for image in images])
         return (
             '{"page_type":"diagram","title":"Architecture","summary":"A diagram.",'
             '"entities":["encoder"],"relations":[],"important_text":[],"uncertainties":[]}'
@@ -542,7 +545,7 @@ def test_ingest_uses_the_configured_generator(tmp_path: Path) -> None:
     assert response.status_code == 202, response.text
     status = _wait_for_job(harness.client, response.json()["job_id"])
     assert status["status"] == "completed"
-    assert generator.calls == [str(harness.image)]
+    assert generator.calls == [[str(harness.image)]]
     assert status["result"]["results"][0]["title"] == "Architecture"
 
 

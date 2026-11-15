@@ -14,12 +14,14 @@ expanded file stays inside ``VLM_SERVICE_MEDIA_ROOT``.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from functools import partial
+from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, BackgroundTasks, Request, status
 
-from ...exceptions import OptionalDependencyError
+from ...exceptions import InputValidationError, OptionalDependencyError
 from ..policy import resolve_media_entries
 from ..schemas import IngestRequest, IngestResponse, IngestResultItem, JobResponse
 from .dependencies import job_registry, service_config, service_runtime
@@ -36,7 +38,9 @@ _EMPTY_ANALYSIS = (
 class _NullGenerator:
     """Deterministic stand-in used when ``no_vlm`` is requested."""
 
-    def generate(self, _image: str, _prompt: str, *, max_new_tokens: int = 512) -> str:
+    def generate(
+        self, _images: Sequence[str | Path], _prompt: str, *, max_new_tokens: int = 512
+    ) -> str:
         return _EMPTY_ANALYSIS
 
 
@@ -62,6 +66,10 @@ def _run_ingest(
         generator: Any = _NullGenerator()
     else:
         generator = runtime.generator
+    if payload.ocr:
+        raise InputValidationError(
+            "OCR ingestion is not yet implemented; set ocr=false or pre-process images externally."
+        )
     pipeline = pipeline_class(
         generator,
         document_id=payload.document_id,

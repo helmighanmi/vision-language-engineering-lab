@@ -72,11 +72,12 @@ def create_app(config: ServiceConfig | None = None) -> FastAPI:
     )
     application.state.metrics = metrics
 
-    # add_middleware order is inner-to-outer, so request ids, logging and
-    # metrics wrap the guards and every route, including rejections.
-    application.add_middleware(RequestTimeoutMiddleware, seconds=service_config.request_timeout)
-    application.add_middleware(RateLimitMiddleware, config=service_config)
+    # add_middleware order is inner-to-outer. The timeout middleware must be
+    # outer (added last) so the request deadline starts before body buffering;
+    # otherwise chunked uploads consume time outside the deadline.
     application.add_middleware(BodyLimitMiddleware, max_bytes=service_config.max_body_bytes)
+    application.add_middleware(RateLimitMiddleware, config=service_config)
+    application.add_middleware(RequestTimeoutMiddleware, seconds=service_config.request_timeout)
     application.add_middleware(RequestContextMiddleware, metrics=metrics, logger=logger)
 
     protected = [Depends(require_api_key)]

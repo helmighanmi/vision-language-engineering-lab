@@ -8,7 +8,8 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
+from pathlib import Path
 from typing import Protocol
 
 from ..exceptions import StructuredOutputError
@@ -39,7 +40,7 @@ PAGE_TYPES = frozenset({"diagram", "table", "text", "mixed", "photo", "screensho
 
 
 class VisionGenerator(Protocol):
-    def generate(self, image: str, prompt: str, *, max_new_tokens: int = 512) -> str: ...
+    def generate(self, images: Sequence[str | Path], prompt: str, *, max_new_tokens: int = 512) -> str: ...
 
 
 def _text(value: object, default: str = "") -> str:
@@ -148,7 +149,7 @@ def analyze_visual_document(
 
     last_error: Exception | None = None
     for _attempt in range(retries + 1):
-        raw = generator.generate(image_ref, VISUAL_RAG_PROMPT, max_new_tokens=1200)
+        raw = generator.generate([image_ref], VISUAL_RAG_PROMPT, max_new_tokens=1200)
         try:
             return _parse_analysis(raw)
         except (StructuredOutputError, ValueError, TypeError, KeyError) as exc:

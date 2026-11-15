@@ -8,12 +8,14 @@
 
 from __future__ import annotations
 
+import json
+import uuid
 from pathlib import Path
 from typing import Any, Sequence
 
 import numpy as np
 
-from ..exceptions import OptionalDependencyError
+from ..exceptions import InputValidationError, OptionalDependencyError
 from ..retrieval.in_memory import SearchResult
 
 
@@ -26,9 +28,12 @@ class QdrantVectorStore:
 
         pip install "vision-language-engineering-lab[stores]"
 
-    Items and metadata are pickled into a Qdrant payload so results preserve
-    the original payload.
+    Chunk payloads and metadata are serialized as JSON (never pickle) into
+    Qdrant point payloads. Logical chunk IDs are mapped to UUID5 identifiers
+    under a fixed namespace, with the original ID preserved in the payload.
     """
+
+    _NAMESPACE = uuid.UUID("6ba7b810-9dad-11d1-80b4-00c04fd430c8")  # DNS namespace
 
     def __init__(
         self,
@@ -75,6 +80,11 @@ class QdrantVectorStore:
                 ),
             )
 
+    @staticmethod
+    def _logical_id_to_uuid(item_id: str) -> str:
+        """Map a stable logical chunk ID to a UUID5 identifier."""
+        return str(uuid.uuid5(QdrantVectorStore._NAMESPACE, item_id))
+
     # -- VectorStore protocol ---------------------------------------------
 
     def add(
@@ -84,8 +94,6 @@ class QdrantVectorStore:
         *,
         ids: Sequence[str] | None = None,
     ) -> None:
-        import pickle
-
         from qdrant_client.http.models import PointStruct, VectorParams
 
         matrix = np.asarray(embeddings, dtype=np.float32)
@@ -94,23 +102,35 @@ class QdrantVectorStore:
         resolved_ids = list(ids) if ids is not None else [f"id-{i}" for i in range(len(items))]
         if len(resolved_ids) != len(items):
             raise ValueError("ids must match the number of items.")
-        # Recreate collection with correct dimension if needed.
         existing = self.client.get_collection(collection_name=self.collection)
-        if existing.config.params.vectors is None or existing.config.params.vectors.size != matrix.shape[1]:
-            self.client.recreate_collection(
-                collection_name=self.collection,
-                vectors_config=VectorParams(
-                    size=matrix.shape[1],
-                    distance=self._Distance.COSINE,
-                ),
+        existing_size = (
+            existing.config.params.vectors.size
+            if existing.config.params.vectors is not None
+            else None
+        )
+        if existing_size is not None and existing_size != matrix.shape[1]:
+            raise ValueError(
+                f"Collection '{self.collection}' has vector size {existing_size}; "
+                f"incoming embeddings have dimension {matrix.shape[1]}. "
+                "Use a new collection for a new embedding schema instead of "
+                "recreating an existing index."
             )
         points = []
         for item_id, item, vector in zip(resolved_ids, items, matrix, strict=True):
+            payload: dict[str, Any] = {
+                "chunk_id": item_id,
+                "metadata": {},
+            }
+            if isinstance(item, dict):
+                payload["metadata"] = item.get("metadata", {})
+                payload["item"] = item
+            else:
+                payload["item"] = {"text": str(item)}
             points.append(
                 PointStruct(
-                    id=item_id,
+                    id=self._logical_id_to_uuid(item_id),
                     vector=vector.tolist(),
-                    payload={"item": pickle.dumps(item).hex(), "metadata": {}},
+                    payload=payload,
                 )
             )
         self.client.upsert(collection_name=self.collection, points=points)
@@ -122,28 +142,38 @@ class QdrantVectorStore:
         top_k: int = 5,
         filter: dict[str, Any] | None = None,
     ) -> list[SearchResult]:
-        import pickle
-
         query = np.asarray(query_embedding, dtype=np.float32)
         if query.ndim != 1:
             raise ValueError("query_embedding must be a 1-D vector.")
+        qdrant_filter = self._build_qdrant_filter(filter) if filter else None
         results = self.client.search(
             collection_name=self.collection,
             query_vector=query.tolist(),
             limit=top_k,
             with_payload=True,
+            query_filter=qdrant_filter,
         )
         scored = []
         for point in results:
             payload = point.payload or {}
-            item_blob = payload.get("item")
-            item = pickle.loads(bytes.fromhex(item_blob)) if item_blob else None
+            item = payload.get("item")
             scored.append(SearchResult(item=item, score=float(point.score), rank=0))
         scored.sort(key=lambda entry: entry.score, reverse=True)
         for rank, result in enumerate(scored, start=1):
             result = SearchResult(item=result.item, score=result.score, rank=rank)
             scored[rank - 1] = result
         return scored
+
+    @staticmethod
+    def _build_qdrant_filter(filter: dict[str, Any]) -> Any:
+        from qdrant_client.http.models import FieldCondition, Filter, MatchValue
+
+        conditions = []
+        for key, value in filter.items():
+            conditions.append(
+                FieldCondition(key=f"metadata.{key}", match=MatchValue(value=value))
+            )
+        return Filter(must=conditions) if conditions else None
 
     def upsert(
         self,
@@ -160,7 +190,7 @@ class QdrantVectorStore:
 
         self.client.delete(
             collection_name=self.collection,
-            points_selector=PointIdsList(ids=list(ids)),
+            points_selector=PointIdsList(ids=[self._logical_id_to_uuid(item_id) for item_id in ids]),
         )
 
     def count(self) -> int:
@@ -174,3 +204,10 @@ class QdrantVectorStore:
     def load(self, path: str | Path) -> None:
         # Qdrant collections are named; this is a no-op for compatibility.
         return None
+
+    def close(self) -> None:
+        """Close the underlying Qdrant client connection."""
+        try:
+            self.client.close()
+        except Exception:
+            pass

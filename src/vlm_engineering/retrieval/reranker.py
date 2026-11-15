@@ -50,6 +50,7 @@ class QwenVLReranker(RetrievalBackend):
         normalize_scores: bool = False,
         model: Any | None = None,
     ) -> None:
+        super().__init__()
         if model_path is not None and not isinstance(model_path, (str, Path)):
             raise InputValidationError("model_path must be a string or Path.")
         positive_int(batch_size, "batch_size")

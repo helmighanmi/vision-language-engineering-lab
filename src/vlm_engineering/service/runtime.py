@@ -153,11 +153,34 @@ class ServiceRuntime:
         return QwenVLMProvider()
 
     def _build_embedder(self) -> Any:
+        config = self.config
+        if config.vlm_provider == "openai-compatible":
+            from ..providers.openai_compatible import OpenAICompatibleEmbeddingProvider
+
+            return OpenAICompatibleEmbeddingProvider(
+                base_url=str(config.vlm_base_url),
+                model=str(config.vlm_model),
+                api_key=config.vlm_api_key,
+                timeout=config.request_timeout,
+            )
         from ..providers.qwen import QwenEmbeddingProvider
 
         kwargs = self._retrieval_model_kwargs()
         profile = self.runtime_profile
         if profile is not None:
+            # Honor the profile's dedicated embedding model source when set,
+            # instead of reusing the generation model selection.
+            profile_model = profile.embedding.model
+            if any(
+                getattr(profile_model, name) is not None
+                for name in ("model_size", "model_id", "model_path")
+            ):
+                if profile_model.model_path is not None:
+                    kwargs = {"model_path": str(profile_model.model_path), "local_files_only": True}
+                elif profile_model.model_id is not None:
+                    kwargs = {"model_id": profile_model.model_id}
+                elif profile_model.model_size is not None:
+                    kwargs = {"model_size": profile_model.model_size}
             kwargs.setdefault("batch_size", profile.embedding.batch_size)
             if profile.embedding.dimensions is not None:
                 kwargs.setdefault("dimensions", profile.embedding.dimensions)
@@ -165,11 +188,35 @@ class ServiceRuntime:
         return QwenEmbeddingProvider(**kwargs)
 
     def _build_reranker(self) -> Any:
+        config = self.config
+        if config.vlm_provider == "openai-compatible":
+            from ..providers.openai_compatible import OpenAICompatibleRerankerProvider
+
+            return OpenAICompatibleRerankerProvider(
+                base_url=str(config.vlm_base_url),
+                model=str(config.vlm_model),
+                api_key=config.vlm_api_key,
+                timeout=config.request_timeout,
+                fallback_to_local=False,
+            )
         from ..providers.qwen import QwenRerankerProvider
 
         kwargs = self._retrieval_model_kwargs()
         profile = self.runtime_profile
         if profile is not None:
+            # Honor the profile's dedicated reranker model source when set,
+            # instead of reusing the generation model selection.
+            profile_model = profile.reranker.model
+            if any(
+                getattr(profile_model, name) is not None
+                for name in ("model_size", "model_id", "model_path")
+            ):
+                if profile_model.model_path is not None:
+                    kwargs = {"model_path": str(profile_model.model_path), "local_files_only": True}
+                elif profile_model.model_id is not None:
+                    kwargs = {"model_id": profile_model.model_id}
+                elif profile_model.model_size is not None:
+                    kwargs = {"model_size": profile_model.model_size}
             kwargs.setdefault("batch_size", profile.reranker.batch_size)
             kwargs.setdefault("normalize_scores", profile.reranker.normalize_scores)
         return QwenRerankerProvider(**kwargs)
@@ -265,6 +312,12 @@ class ServiceRuntime:
                 if callable(close):
                     close()
                 setattr(self, attribute, None)
+            # Close persistent store connections (SQLite, Qdrant client) to
+            # avoid leaking file handles and network connections on shutdown.
+            for store in self._built_stores.values():
+                close = getattr(store, "close", None)
+                if callable(close):
+                    close()
             self._built_stores.clear()
 
     def close(self) -> None:

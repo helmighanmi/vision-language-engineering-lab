@@ -8,13 +8,14 @@
 
 from __future__ import annotations
 
-import pickle
+import json
 from pathlib import Path
 from typing import Any, Sequence
 
 import numpy as np
 
 from ..documents.schemas import VisualChunk
+from ..exceptions import InputValidationError
 from ..retrieval.in_memory import InMemoryVectorIndex, SearchResult
 
 
@@ -134,20 +135,36 @@ class MemoryVectorStore:
         resolved_ids = list(ids) if ids is not None else self._default_ids(len(items))
         if len(resolved_ids) != len(items):
             raise ValueError("ids must match the number of items.")
+        # Validate everything before mutating state: dimensions, finiteness,
+        # ID uniqueness (against existing and within the new batch), and lengths.
+        if not np.isfinite(matrix).all():
+            raise ValueError("embeddings must contain only finite values.")
+        if np.any(np.linalg.norm(matrix, axis=1) == 0):
+            raise ValueError("embeddings must have nonzero norm.")
+        if len(set(resolved_ids)) != len(resolved_ids):
+            raise ValueError("duplicate ids within the same batch are not allowed.")
         duplicate = set(resolved_ids) & set(self._id_to_position)
         if duplicate:
             raise ValueError(f"ids already exist: {sorted(duplicate)}.")
+        # All validation passed; publish one complete replacement state.
         start = len(self._items)
-        self._items.extend(items)
+        new_items = list(self._items) + list(items)
+        new_metadata = list(self._metadata) + [self._extract_metadata(item) for item in items]
+        new_id_to_position = dict(self._id_to_position)
+        new_position_to_id = list(self._position_to_id)
         for offset, item_id in enumerate(resolved_ids):
             position = start + offset
-            self._id_to_position[item_id] = position
-            self._position_to_id.append(item_id)
-            self._metadata.append(self._extract_metadata(items[offset]))
+            new_id_to_position[item_id] = position
+            new_position_to_id.append(item_id)
         if self._embeddings is None:
-            self._embeddings = matrix.copy()
+            new_embeddings = matrix.copy()
         else:
-            self._embeddings = np.vstack([self._embeddings, matrix])
+            new_embeddings = np.vstack([self._embeddings, matrix])
+        self._items = new_items
+        self._metadata = new_metadata
+        self._id_to_position = new_id_to_position
+        self._position_to_id = new_position_to_id
+        self._embeddings = new_embeddings
         self._rebuild_index()
 
     def search(
@@ -229,23 +246,27 @@ class MemoryVectorStore:
     def persist(self, path: str | Path) -> None:
         destination = Path(path)
         destination.parent.mkdir(parents=True, exist_ok=True)
+        embeddings = None
+        if self._embeddings is not None:
+            embeddings = self._embeddings.astype(np.float64).tolist()
         payload = {
-            "items": self._items,
-            "embeddings": (
-                self._embeddings if self._embeddings is not None else None
-            ),
+            "format": "json-v1",
+            "items": [self._item_to_json(item) for item in self._items],
+            "embeddings": embeddings,
             "id_to_position": self._id_to_position,
             "position_to_id": self._position_to_id,
             "metadata": self._metadata,
         }
-        destination.write_bytes(pickle.dumps(payload))
+        destination.write_text(json.dumps(payload), encoding="utf-8")
 
     def load(self, path: str | Path) -> None:
         source = Path(path)
         if not source.exists():
             raise FileNotFoundError(f"Vector store not found: {source}")
-        payload = pickle.loads(source.read_bytes())
-        self._items = list(payload["items"])
+        payload = json.loads(source.read_text(encoding="utf-8"))
+        if payload.get("format") != "json-v1":
+            raise InputValidationError(f"Unsupported store format: {payload.get('format')!r}")
+        self._items = [self._item_from_json(entry) for entry in payload["items"]]
         self._metadata = list(payload["metadata"])
         embeddings = payload["embeddings"]
         self._embeddings = (
@@ -254,3 +275,20 @@ class MemoryVectorStore:
         self._id_to_position = dict(payload.get("id_to_position", {}))
         self._position_to_id = list(payload.get("position_to_id", [None] * len(self._items)))
         self._rebuild_index()
+
+    @staticmethod
+    def _item_to_json(item: Any) -> Any:
+        if isinstance(item, VisualChunk):
+            return {"__type__": "VisualChunk", **item.to_dict()}
+        if isinstance(item, (str, int, float, bool)) or item is None:
+            return item
+        if isinstance(item, (list, dict)):
+            return item
+        return {"__type__": "text", "text": str(item)}
+
+    @staticmethod
+    def _item_from_json(entry: Any) -> Any:
+        if isinstance(entry, dict) and entry.get("__type__") == "VisualChunk":
+            data = {k: v for k, v in entry.items() if k != "__type__"}
+            return VisualChunk.from_dict(data)
+        return entry

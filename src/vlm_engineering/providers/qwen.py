@@ -111,10 +111,9 @@ class QwenRerankerProvider:
         from ..retrieval.in_memory import SearchResult
 
         scores = self.score(query, documents, prompt=prompt)
-        prepared = normalize_inputs(documents)
         order = np.argsort(-scores, kind="stable")[:top_k]
         return [
-            SearchResult(prepared[int(i)], float(scores[i]), rank)
+            SearchResult(documents[int(i)], float(scores[i]), rank)
             for rank, i in enumerate(order, 1)
         ]
 

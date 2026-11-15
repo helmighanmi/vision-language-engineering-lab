@@ -8,6 +8,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
@@ -28,8 +29,10 @@ class FakeGenerator:
         self.response = response
         self.calls: list[Any] = []
 
-    def generate(self, image: str, prompt: str, *, max_new_tokens: int = 512) -> str:
-        self.calls.append((image, prompt, max_new_tokens))
+    def generate(
+        self, images: Sequence[str | Path], prompt: str, *, max_new_tokens: int = 512
+    ) -> str:
+        self.calls.append(([str(image) for image in images], prompt, max_new_tokens))
         return self.response
 
 
@@ -68,7 +71,7 @@ def test_ingest_single_image(tmp_path) -> None:
     assert chunk.document_id == "doc"
     assert chunk.source_file == "src.pdf"
     assert chunk.title == "T"
-    assert generator.calls[0][0] == str(image.resolve())
+    assert generator.calls[0][0] == [str(image.resolve())]
 
 
 def test_ingest_with_ocr(tmp_path) -> None:

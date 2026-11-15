@@ -11,6 +11,8 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+import uuid
+from collections.abc import Sequence
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any
@@ -481,6 +483,10 @@ def cmd_ingest(args: argparse.Namespace) -> int:
         raise ImportError(
             "ingest requires the [ingest] extra: pip install -e '.[ingest]'"
         )
+    if args.ocr:
+        raise InputValidationError(
+            "OCR ingestion is not yet implemented; omit --ocr or pre-process images externally."
+        )
     model = _build_qwen(args)
     image_paths = []
     for entry in args.images:
@@ -498,7 +504,9 @@ def cmd_ingest(args: argparse.Namespace) -> int:
 
     if args.no_vlm:
         class NullGenerator:
-            def generate(self, _image, _prompt, *, max_new_tokens: int = 512) -> str:
+            def generate(
+                self, _images: Sequence[str | Path], _prompt: str, *, max_new_tokens: int = 512
+            ) -> str:
                 return (
                     '{"page_type":"mixed","title":"","summary":"","entities":[],'
                     '"relations":[],"important_text":[],"uncertainties":[]}'
@@ -554,7 +562,7 @@ def cmd_index(args: argparse.Namespace) -> int:
     # Embed chunks using their fused text.
     texts = [chunk.get("text", "") for chunk in chunks]
     embeddings = embedder.encode([{"text": text} for text in texts])
-    ids = [chunk.get("chunk_id", f"id-{i}") for i, chunk in enumerate(chunks)]
+    ids = [chunk.get("chunk_id", str(uuid.uuid4())) for i, chunk in enumerate(chunks)]
     store.add(embeddings, chunks, ids=ids)
 
     args.output.parent.mkdir(parents=True, exist_ok=True)

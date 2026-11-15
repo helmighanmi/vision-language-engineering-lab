@@ -54,7 +54,7 @@ def test_local_model_path_is_reported_verbatim() -> None:
     assert catalog["embedding"] == str(path)
 
 
-def test_openai_compatible_catalog_keeps_qwen_retrieval_models() -> None:
+def test_openai_compatible_catalog_uses_remote_for_all_capabilities() -> None:
     config = ServiceConfig(
         vlm_provider="openai-compatible",
         vlm_base_url="http://localhost:8000",
@@ -63,5 +63,7 @@ def test_openai_compatible_catalog_keeps_qwen_retrieval_models() -> None:
     models = {item.capability: item for item in build_model_catalog(config)}
     assert models["generation"].model == "served-vlm"
     assert models["generation"].provider == "openai-compatible"
-    assert models["embedding"].provider == "qwen"
-    assert models["embedding"].model == "Qwen/Qwen3-VL-Embedding-2B"
+    assert models["embedding"].model == "served-vlm"
+    assert models["embedding"].provider == "openai-compatible"
+    assert models["reranking"].model == "served-vlm"
+    assert models["reranking"].provider == "openai-compatible"

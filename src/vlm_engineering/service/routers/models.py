@@ -28,10 +28,10 @@ def build_model_catalog(config: ServiceConfig) -> list[ModelInfo]:
     ]
     embedding = embedding_model(config)
     if embedding is not None:
-        models.append(ModelInfo(capability="embedding", model=embedding, provider="qwen"))
+        models.append(ModelInfo(capability="embedding", model=embedding, provider=config.vlm_provider))
     reranking = reranking_model(config)
     if reranking is not None:
-        models.append(ModelInfo(capability="reranking", model=reranking, provider="qwen"))
+        models.append(ModelInfo(capability="reranking", model=reranking, provider=config.vlm_provider))
     return models
 
 

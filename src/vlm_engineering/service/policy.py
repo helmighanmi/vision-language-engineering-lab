@@ -17,6 +17,7 @@ when remote support is implemented end-to-end.
 
 from __future__ import annotations
 
+import ipaddress
 from collections.abc import Sequence
 from pathlib import Path
 from urllib.parse import unquote, urlsplit
@@ -33,13 +34,45 @@ SUPPORTED_IMAGE_EXTENSIONS = frozenset(
     {".png", ".jpg", ".jpeg", ".webp", ".bmp", ".tiff"}
 )
 
+# Ports never allowed for remote image fetching, even when remote images are
+# explicitly enabled. Covers common internal/service metadata ports.
+_FORBIDDEN_PORTS = frozenset({22, 25, 53, 80, 443, 3306, 5432, 6379, 8000, 8080, 9200, 27017})
 
-def _relative_to(path: Path, root: Path, root_name: str, label: str) -> Path:
+# Maximum remote image size in bytes (10 MiB).
+_MAX_REMOTE_IMAGE_BYTES = 10 * 1024 * 1024
+# Maximum remote fetch time in seconds.
+_MAX_REMOTE_FETCH_SECONDS = 10.0
+
+
+def _is_internal_host(host: str) -> bool:
+    """Return True if ``host`` resolves to a private/loopback/link-local address."""
     try:
-        path.relative_to(root)
+        info = ipaddress.ip_address(host)
     except ValueError:
-        raise InputValidationError(f"{label} escapes {root_name}: {path}") from None
-    return path
+        # Not a literal IP; could be a hostname. Reject common internal names.
+        lowered = host.lower()
+        return lowered.endswith((".local", ".internal", ".invalid", ".localhost")) or lowered in (
+            "localhost",
+            "localhost.localdomain",
+        )
+    return (
+        info.is_loopback
+        or info.is_private
+        or info.is_link_local
+        or info.is_reserved
+        or info.is_multicast
+    )
+
+
+def _enforce_media_root(path: Path, root: Path, root_name: str, label: str) -> Path:
+    """Return ``path`` only if it is contained within ``root`` after resolution."""
+    resolved_path = path.resolve()
+    resolved_root = root.resolve()
+    try:
+        resolved_path.relative_to(resolved_root)
+    except ValueError:
+        raise InputValidationError(f"{label} escapes {root_name}: {resolved_path}") from None
+    return resolved_path
 
 
 def _local_media_path(reference: str, config: ServiceConfig) -> Path:
@@ -54,7 +87,11 @@ def _local_media_path(reference: str, config: ServiceConfig) -> Path:
     root = config.media_root
     if root is None:
         raise InputValidationError(f"Local image paths require {MEDIA_ROOT_ENV} to be configured.")
-    return _relative_to(raw_path.resolve(), root.resolve(), MEDIA_ROOT_ENV, "image")
+    # Relative references are joined to the media root before resolution, so
+    # ``diagram.png`` resolves under ``media_root`` rather than the CWD.
+    if not raw_path.is_absolute():
+        raw_path = root / raw_path
+    return _enforce_media_root(raw_path.resolve(), root.resolve(), MEDIA_ROOT_ENV, "image")
 
 
 def resolve_media_reference(reference: str, config: ServiceConfig) -> str:
@@ -75,6 +112,11 @@ def resolve_media_reference(reference: str, config: ServiceConfig) -> str:
             raise InputValidationError(_REMOTE_DISABLED)
         if not parts.netloc:
             raise InputValidationError("Remote image URL must include a host.")
+        host = parts.hostname or ""
+        if _is_internal_host(host):
+            raise InputValidationError(f"Remote image host is not publicly routable: {host!r}.")
+        if parts.port is not None and parts.port in _FORBIDDEN_PORTS:
+            raise InputValidationError(f"Remote image port is not allowed: {parts.port}.")
         return value
 
     resolved = _local_media_path(value, config)
@@ -107,12 +149,15 @@ def resolve_media_entries(
         path = _local_media_path(value, config)
         if path.is_dir():
             pattern = "**/*" if recursive else "*"
+            root = config.media_root.resolve()
             entries.extend(
                 sorted(
                     str(candidate.resolve())
                     for candidate in path.glob(pattern)
                     if candidate.is_file()
                     and candidate.suffix.lower() in SUPPORTED_IMAGE_EXTENSIONS
+                    and _enforce_media_root(candidate.resolve(), root, MEDIA_ROOT_ENV, "expanded image")
+                    == candidate.resolve()
                 )
             )
             continue
@@ -142,7 +187,7 @@ def resolve_output_path(reference: str, config: ServiceConfig) -> Path:
     root = config.output_root
     if root is None:
         raise InputValidationError(f"Server-side output requires {OUTPUT_ROOT_ENV} to be configured.")
-    return _relative_to(
+    return _enforce_media_root(
         (root / candidate).resolve(),
         root.resolve(),
         OUTPUT_ROOT_ENV,

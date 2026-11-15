@@ -14,7 +14,7 @@ import numpy as np
 from fastapi import APIRouter, Request
 
 from ..catalog import reranking_model
-from ..policy import reject_model_overrides
+from ..policy import reject_model_overrides, resolve_media_reference
 from ..schemas import RerankRequest, RerankResponse, RerankResult
 from .dependencies import service_config, service_runtime
 
@@ -30,12 +30,29 @@ def _sigmoid(score: float) -> float:
 
 def _score(result: Any, normalize_scores: bool) -> float:
     value = float(result.score)
-    # Providers configured with normalized scores already return (0, 1); only
-    # apply the sigmoid when a raw score falls outside that range, so the flag
-    # never double-normalizes.
-    if normalize_scores and not 0.0 <= value <= 1.0:
+    # Apply the requested conversion exactly once when asked; never infer
+    # raw-versus-normalized semantics from the numeric value alone.
+    if normalize_scores:
         value = _sigmoid(value)
     return value
+
+
+def _validate_documents(documents: list[dict[str, str]], config: Any) -> list[dict[str, str]]:
+    """Validate every client-controlled image reference inside documents.
+
+    Reranking must enforce the same media-root containment as ingestion, so a
+    caller cannot smuggle an outside-root image through the rerank endpoint.
+    """
+    validated: list[dict[str, str]] = []
+    for document in documents:
+        entry: dict[str, str] = {}
+        for key, value in document.items():
+            if key == "image" and isinstance(value, str) and value.strip():
+                entry[key] = resolve_media_reference(value, config)
+            else:
+                entry[key] = value
+        validated.append(entry)
+    return validated
 
 
 @router.post("/rerank", response_model=RerankResponse)
@@ -49,9 +66,10 @@ def rerank(payload: RerankRequest, request: Request) -> RerankResponse:
         model_path=payload.model_path,
     )
     with runtime.limiter.slot("reranking"):
+        validated_documents = _validate_documents(payload.documents, config)
         results = runtime.reranker.rerank(
             payload.query,
-            payload.documents,
+            validated_documents,
             top_k=payload.top_k,
             prompt=payload.prompt,
         )

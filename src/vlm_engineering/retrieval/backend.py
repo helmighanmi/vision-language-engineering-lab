@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import gc
+import threading
 from typing import Any
 
 from ..exceptions import ModelLoadError
@@ -18,6 +19,9 @@ from .model_options import RetrievalKind, RetrievalModelOptions, validate_snapsh
 
 class RetrievalBackend:
     kind: RetrievalKind
+
+    def __init__(self) -> None:
+        self._load_lock = threading.Lock()
 
     def _configure(self, options: RetrievalModelOptions, model: Any | None) -> None:
         self.options = options
@@ -30,14 +34,19 @@ class RetrievalBackend:
         self._model = model
 
     def _ensure_loaded(self) -> Any:
-        if self._model is None:
-            with backend_errors(loading=True):
-                from sentence_transformers import CrossEncoder, SentenceTransformer
-
-                factory = SentenceTransformer if self.kind == "Embedding" else CrossEncoder
-                self._model = factory(self.model_source, **self.options.backend_kwargs())
+        # Fast path: model already loaded.
+        if self._model is not None:
+            return self._model
+        # Slow path: serialize first-load so concurrent callers get one model.
+        with self._load_lock:
             if self._model is None:
-                raise ModelLoadError(f"Unable to load {self.model_source}.")
+                with backend_errors(loading=True):
+                    from sentence_transformers import CrossEncoder, SentenceTransformer
+
+                    factory = SentenceTransformer if self.kind == "Embedding" else CrossEncoder
+                    self._model = factory(self.model_source, **self.options.backend_kwargs())
+                if self._model is None:
+                    raise ModelLoadError(f"Unable to load {self.model_source}.")
         return self._model
 
     def unload(self) -> None:

@@ -17,6 +17,7 @@ from __future__ import annotations
 from functools import partial
 from pathlib import Path
 from typing import Any
+import uuid
 
 import numpy as np
 from fastapi import APIRouter, BackgroundTasks, Request, status
@@ -65,12 +66,17 @@ def _chunk_inputs(chunks: list[dict[str, Any]], config: Any) -> list[dict[str, s
 
 
 def _store_for(payload: IndexRequest, request: Request, output: Path) -> Any:
-    """Construct (or reuse) the store named by the request."""
+    """Construct (or reuse) the store named by the request.
+
+    When the request omits ``store``, fall back to ``VLM_SERVICE_STORE`` so
+    indexing and querying hit the same store by default.
+    """
     runtime = service_runtime(request)
     config = service_config(request)
-    if payload.store == "sqlite-vec":
+    store_kind = payload.store if "store" in payload.model_fields_set else config.store
+    if store_kind == "sqlite-vec":
         return runtime.store("sqlite-vec", path=output)
-    if payload.store == "qdrant":
+    if store_kind == "qdrant":
         return runtime.store(
             "qdrant",
             host=config.qdrant_host,
@@ -115,7 +121,7 @@ def index(
     output = resolve_output_path(payload.output, config)
     inputs = _chunk_inputs(payload.chunks, config)
     store = _store_for(payload, request, output)
-    ids = [str(chunk.get("chunk_id") or f"chunk-{position}") for position, chunk in enumerate(payload.chunks)]
+    ids = [str(chunk.get("chunk_id") or uuid.uuid4()) for position, chunk in enumerate(payload.chunks)]
     job = registry.create("index")
     background.add_task(
         registry.run,

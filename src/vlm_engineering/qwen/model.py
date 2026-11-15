@@ -240,15 +240,17 @@ class QwenVLModel:
 
     def generate(
         self,
-        image: str | Path,
+        images: str | Path | Sequence[str | Path],
         prompt: str,
         *,
         system_prompt: str | None = None,
         max_new_tokens: int = 512,
     ) -> str:
-        """Generate a text response grounded in one image (legacy API)."""
+        """Generate from one or more images in attachment order."""
+        if isinstance(images, (str, bytes, Path)):
+            images = [images]
         return self.generate_images(
-            [image], prompt, system_prompt=system_prompt, max_new_tokens=max_new_tokens
+            images, prompt, system_prompt=system_prompt, max_new_tokens=max_new_tokens
         )
 
     def generate_text(

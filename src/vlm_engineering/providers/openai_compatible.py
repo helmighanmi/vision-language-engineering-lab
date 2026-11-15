@@ -16,6 +16,7 @@ import numpy as np
 
 from ..inputs import MultimodalInput, normalize_input, normalize_inputs
 from ..operational import backend_errors
+from ..exceptions import InputValidationError
 
 
 class OpenAICompatibleVLMProvider:
@@ -50,7 +51,14 @@ class OpenAICompatibleVLMProvider:
     ) -> str:
         content: list[dict[str, Any]] = []
         for image in images:
-            content.append({"type": "image_url", "image_url": {"url": str(image)}})
+            url = str(image)
+            if not url.startswith(("http://", "https://")):
+                raise InputValidationError(
+                    "OpenAI-compatible generation requires image URLs reachable by the remote server; "
+                    f"local paths such as {url!r} are not automatically readable remotely. "
+                    "Host the image at a public URL or use the local Qwen provider instead."
+                )
+            content.append({"type": "image_url", "image_url": {"url": url}})
         content.append({"type": "text", "text": prompt})
         messages: list[dict[str, Any]] = []
         if system_prompt:
@@ -163,8 +171,10 @@ class OpenAICompatibleEmbeddingProvider:
 class OpenAICompatibleRerankerProvider:
     """Reranker provider calling a custom ``/v1/rerank`` endpoint.
 
-    Falls back to scoring via embedding similarity when the endpoint is not
-    available.
+    By default, errors from the remote endpoint are surfaced to the caller
+    rather than silently falling back to a local model. Set
+    ``fallback_to_local=True`` to retain the legacy silent-fallback behavior
+    (which requires local Qwen model dependencies and downloads).
     """
 
     def __init__(
@@ -174,9 +184,11 @@ class OpenAICompatibleRerankerProvider:
         *,
         api_key: str | None = None,
         timeout: float = 120.0,
+        fallback_to_local: bool = False,
     ) -> None:
         self.base_url = base_url.rstrip("/")
         self.model = model
+        self.fallback_to_local = fallback_to_local
         headers: dict[str, str] = {"Content-Type": "application/json"}
         if api_key:
             headers["Authorization"] = f"Bearer {api_key}"
@@ -203,11 +215,32 @@ class OpenAICompatibleRerankerProvider:
                 response = self.client.post("/v1/rerank", json=payload)
             response.raise_for_status()
             data = response.json()
-            scores = [item["score"] for item in data.get("results", [])]
-            if len(scores) != len(prepared_docs):
+            raw_results = data.get("results", [])
+            if len(raw_results) != len(prepared_docs):
                 raise ValueError("reranker returned wrong number of scores")
+            scores: list[float] = [0.0] * len(prepared_docs)
+            seen_indices: set[int] = set()
+            for item in raw_results:
+                index = item.get("index", len(seen_indices))
+                if not isinstance(index, int) or isinstance(index, bool):
+                    raise ValueError("reranker result index must be an integer.")
+                if index < 0 or index >= len(prepared_docs):
+                    raise ValueError("reranker result index out of range.")
+                if index in seen_indices:
+                    raise ValueError("reranker returned duplicate indices.")
+                seen_indices.add(index)
+                score = float(item["score"])
+                if not np.isfinite(score):
+                    raise ValueError("reranker returned a non-finite score.")
+                scores[index] = score
+            if len(seen_indices) != len(prepared_docs):
+                raise ValueError("reranker returned missing indices.")
             return np.asarray(scores, dtype=np.float32)
-        except (httpx.HTTPError, ValueError, KeyError):
+        except (httpx.HTTPError, ValueError, KeyError) as exc:
+            if not self.fallback_to_local:
+                # Surface authentication/status/parsing failures instead of
+                # silently switching to a local model that may not be installed.
+                raise
             # Fallback: cosine similarity between query and document text.
             from ..retrieval.multimodal_embedding import QwenVLEmbedder
 
@@ -232,10 +265,9 @@ class OpenAICompatibleRerankerProvider:
         from ..retrieval.in_memory import SearchResult
 
         scores = self.score(query, documents, prompt=prompt)
-        prepared = normalize_inputs(documents)
         order = np.argsort(-scores, kind="stable")[:top_k]
         return [
-            SearchResult(prepared[int(i)], float(scores[i]), rank)
+            SearchResult(documents[int(i)], float(scores[i]), rank)
             for rank, i in enumerate(order, 1)
         ]
 

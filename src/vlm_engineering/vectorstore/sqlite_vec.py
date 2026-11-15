@@ -8,12 +8,15 @@
 
 from __future__ import annotations
 
+import json
+import sqlite3
+import threading
 from pathlib import Path
 from typing import Any, Sequence
 
 import numpy as np
 
-from ..exceptions import OptionalDependencyError
+from ..exceptions import InputValidationError, OptionalDependencyError
 from ..retrieval.in_memory import SearchResult
 
 
@@ -38,31 +41,34 @@ class SqliteVecVectorStore:
             raise OptionalDependencyError(
                 'Install "vision-language-engineering-lab[stores]" for sqlite-vec support.'
             ) from exc
-        import sqlite3
 
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.table = table
-        self._conn = sqlite3.connect(str(self.path))
+        # check_same_thread=False allows the connection to be used from worker
+        # threads; _lock serializes all access so SQLite's own threading rules
+        # are not violated.
+        self._conn = sqlite3.connect(str(self.path), check_same_thread=False)
+        self._lock = threading.Lock()
         self._conn.execute("PRAGMA journal_mode=WAL")
         self._init_schema()
 
     def _init_schema(self) -> None:
-
-        self._conn.execute(
-            f"""
-            CREATE TABLE IF NOT EXISTS {self.table} (
-                id TEXT PRIMARY KEY,
-                item BLOB NOT NULL,
-                metadata BLOB NOT NULL,
-                embedding BLOB NOT NULL
+        with self._lock:
+            self._conn.execute(
+                f"""
+                CREATE TABLE IF NOT EXISTS {self.table} (
+                    id TEXT PRIMARY KEY,
+                    item BLOB NOT NULL,
+                    metadata BLOB NOT NULL,
+                    embedding BLOB NOT NULL
+                )
+                """
             )
-            """
-        )
-        self._conn.execute(
-            f"CREATE INDEX IF NOT EXISTS idx_{self.table}_id ON {self.table}(id)"
-        )
-        self._conn.commit()
+            self._conn.execute(
+                f"CREATE INDEX IF NOT EXISTS idx_{self.table}_id ON {self.table}(id)"
+            )
+            self._conn.commit()
 
     # -- VectorStore protocol ---------------------------------------------
 
@@ -73,7 +79,6 @@ class SqliteVecVectorStore:
         *,
         ids: Sequence[str] | None = None,
     ) -> None:
-        import pickle
         import sqlite3
 
         matrix = np.asarray(embeddings, dtype=np.float32)
@@ -84,19 +89,34 @@ class SqliteVecVectorStore:
             raise ValueError("ids must match the number of items.")
         rows = []
         for item_id, item, vector in zip(resolved_ids, items, matrix, strict=True):
+            item_blob = json.dumps(self._item_to_json(item)).encode("utf-8")
+            metadata_blob = json.dumps(self._extract_metadata(item)).encode("utf-8")
             rows.append(
                 (
                     item_id,
-                    sqlite3.Binary(pickle.dumps(item)),
-                    sqlite3.Binary(pickle.dumps({})),
+                    sqlite3.Binary(item_blob),
+                    sqlite3.Binary(metadata_blob),
                     sqlite3.Binary(vector.tobytes()),
                 )
             )
-        self._conn.executemany(
-            f"INSERT OR REPLACE INTO {self.table} (id, item, metadata, embedding) VALUES (?, ?, ?, ?)",
-            rows,
-        )
-        self._conn.commit()
+        with self._lock:
+            self._conn.executemany(
+                f"INSERT OR REPLACE INTO {self.table} (id, item, metadata, embedding) VALUES (?, ?, ?, ?)",
+                rows,
+            )
+            self._conn.commit()
+
+    @staticmethod
+    def _item_to_json(item: Any) -> dict[str, Any]:
+        if isinstance(item, dict):
+            return dict(item)
+        return {"text": str(item)}
+
+    @staticmethod
+    def _extract_metadata(item: Any) -> dict[str, Any]:
+        if isinstance(item, dict) and isinstance(item.get("metadata"), dict):
+            return dict(item["metadata"])
+        return {}
 
     def search(
         self,
@@ -105,19 +125,20 @@ class SqliteVecVectorStore:
         top_k: int = 5,
         filter: dict[str, Any] | None = None,
     ) -> list[SearchResult]:
-        import pickle
+        import sqlite3
 
         query = np.asarray(query_embedding, dtype=np.float32)
         if query.ndim != 1:
             raise ValueError("query_embedding must be a 1-D vector.")
-        rows = self._conn.execute(
-            f"SELECT id, item, embedding FROM {self.table}"
-        ).fetchall()
+        with self._lock:
+            rows = self._conn.execute(
+                f"SELECT id, item, metadata, embedding FROM {self.table}"
+            ).fetchall()
         if not rows:
             return []
         scored = []
         query_norm = float(np.linalg.norm(query))
-        for item_id, item_blob, embedding_blob in rows:
+        for item_id, item_blob, metadata_blob, embedding_blob in rows:
             vector = np.frombuffer(embedding_blob, dtype=np.float32)
             if vector.shape[0] != query.shape[0]:
                 continue
@@ -125,7 +146,18 @@ class SqliteVecVectorStore:
             if query_norm == 0 or vector_norm == 0:
                 continue
             similarity = float(np.dot(query, vector) / (query_norm * vector_norm))
-            item = pickle.loads(item_blob)
+            # Apply metadata filter before scoring.
+            if filter is not None:
+                try:
+                    stored_metadata = json.loads(metadata_blob.decode("utf-8"))
+                except (ValueError, UnicodeDecodeError):
+                    stored_metadata = {}
+                if not all(stored_metadata.get(key) == value for key, value in filter.items()):
+                    continue
+            try:
+                item = json.loads(item_blob.decode("utf-8"))
+            except (ValueError, UnicodeDecodeError):
+                item = None
             scored.append((item_id, item, similarity))
         scored.sort(key=lambda entry: entry[2], reverse=True)
         results = []
@@ -146,14 +178,16 @@ class SqliteVecVectorStore:
 
     def delete(self, ids: Sequence[str]) -> None:
 
-        self._conn.executemany(
-            f"DELETE FROM {self.table} WHERE id = ?",
-            [(item_id,) for item_id in ids],
-        )
-        self._conn.commit()
+        with self._lock:
+            self._conn.executemany(
+                f"DELETE FROM {self.table} WHERE id = ?",
+                [(item_id,) for item_id in ids],
+            )
+            self._conn.commit()
 
     def count(self) -> int:
-        row = self._conn.execute(f"SELECT COUNT(*) FROM {self.table}").fetchone()
+        with self._lock:
+            row = self._conn.execute(f"SELECT COUNT(*) FROM {self.table}").fetchone()
         return int(row[0]) if row else 0
 
     def persist(self, path: str | Path) -> None:
@@ -163,15 +197,15 @@ class SqliteVecVectorStore:
     def load(self, path: str | Path) -> None:
         # Reconnect to an existing sqlite-vec database.
         self.path = Path(path)
-        self._conn.close()
-        import sqlite3
-
-        self._conn = sqlite3.connect(str(self.path))
-        self._conn.execute("PRAGMA journal_mode=WAL")
-        self._init_schema()
+        with self._lock:
+            self._conn.close()
+            self._conn = sqlite3.connect(str(self.path), check_same_thread=False)
+            self._conn.execute("PRAGMA journal_mode=WAL")
+            self._init_schema()
 
     def close(self) -> None:
-        self._conn.close()
+        with self._lock:
+            self._conn.close()
 
     def __enter__(self) -> "SqliteVecVectorStore":
         return self
