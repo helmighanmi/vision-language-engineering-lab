@@ -14,9 +14,9 @@ from typing import Any, Sequence
 import httpx
 import numpy as np
 
+from ..exceptions import InputValidationError
 from ..inputs import MultimodalInput, normalize_input, normalize_inputs
 from ..operational import backend_errors
-from ..exceptions import InputValidationError
 
 
 class OpenAICompatibleVLMProvider:
@@ -236,7 +236,7 @@ class OpenAICompatibleRerankerProvider:
             if len(seen_indices) != len(prepared_docs):
                 raise ValueError("reranker returned missing indices.")
             return np.asarray(scores, dtype=np.float32)
-        except (httpx.HTTPError, ValueError, KeyError) as exc:
+        except (httpx.HTTPError, ValueError, KeyError):
             if not self.fallback_to_local:
                 # Surface authentication/status/parsing failures instead of
                 # silently switching to a local model that may not be installed.
@@ -252,7 +252,7 @@ class OpenAICompatibleRerankerProvider:
             query_norm_value = float(np.linalg.norm(query_vector))
             query_norm = query_norm_value if query_norm_value > 0 else 1e-12
             scores = (doc_vectors @ query_vector) / (norms.flatten() * query_norm)
-            return scores.astype(np.float32)
+            return np.asarray(scores, dtype=np.float32)
 
     def rerank(
         self,

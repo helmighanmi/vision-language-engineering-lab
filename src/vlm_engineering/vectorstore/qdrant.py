@@ -8,14 +8,13 @@
 
 from __future__ import annotations
 
-import json
 import uuid
 from pathlib import Path
 from typing import Any, Sequence
 
 import numpy as np
 
-from ..exceptions import InputValidationError, OptionalDependencyError
+from ..exceptions import OptionalDependencyError
 from ..retrieval.in_memory import SearchResult
 
 
@@ -94,7 +93,7 @@ class QdrantVectorStore:
         *,
         ids: Sequence[str] | None = None,
     ) -> None:
-        from qdrant_client.http.models import PointStruct, VectorParams
+        from qdrant_client.http.models import PointStruct
 
         matrix = np.asarray(embeddings, dtype=np.float32)
         if matrix.ndim != 2 or len(matrix) != len(items):

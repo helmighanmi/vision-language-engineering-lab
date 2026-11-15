@@ -16,9 +16,9 @@ from fastapi import APIRouter, Request
 from ...config import MAX_GENERATION_IMAGES
 from ...exceptions import InputValidationError
 from ...inputs import normalize_input, validate_image
-from ..policy import resolve_media_reference
 from ...retrieval.in_memory import SearchResult
 from ..catalog import generation_model
+from ..policy import resolve_media_reference
 from ..schemas import QueryRequest, QueryResponse
 from .dependencies import service_config, service_runtime
 

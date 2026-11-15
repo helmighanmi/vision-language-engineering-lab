@@ -16,7 +16,7 @@ from typing import Any, Sequence
 
 import numpy as np
 
-from ..exceptions import InputValidationError, OptionalDependencyError
+from ..exceptions import OptionalDependencyError
 from ..retrieval.in_memory import SearchResult
 
 
@@ -125,7 +125,6 @@ class SqliteVecVectorStore:
         top_k: int = 5,
         filter: dict[str, Any] | None = None,
     ) -> list[SearchResult]:
-        import sqlite3
 
         query = np.asarray(query_embedding, dtype=np.float32)
         if query.ndim != 1:

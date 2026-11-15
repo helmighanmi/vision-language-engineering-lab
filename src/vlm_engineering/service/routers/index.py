@@ -14,10 +14,10 @@ silently inside the background task.
 
 from __future__ import annotations
 
+import uuid
 from functools import partial
 from pathlib import Path
 from typing import Any
-import uuid
 
 import numpy as np
 from fastapi import APIRouter, BackgroundTasks, Request, status

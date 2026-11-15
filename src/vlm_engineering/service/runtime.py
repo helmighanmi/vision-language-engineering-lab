@@ -114,7 +114,7 @@ class ServiceRuntime:
         self._embedder = embedder
         self._reranker = reranker
         self._provided_stores = dict(stores or {})
-        self._built_stores: dict[tuple[str, str | None], Any] = {}
+        self._built_stores: dict[tuple[str, str | None, str | None], Any] = {}
         self._runtime_profile = runtime_profile
         self.limiter = ConcurrencyLimiter(config.max_concurrency)
 

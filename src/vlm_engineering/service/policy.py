@@ -149,7 +149,7 @@ def resolve_media_entries(
         path = _local_media_path(value, config)
         if path.is_dir():
             pattern = "**/*" if recursive else "*"
-            root = config.media_root.resolve()
+            root = config.media_root.resolve()  # type: ignore[union-attr]
             entries.extend(
                 sorted(
                     str(candidate.resolve())
