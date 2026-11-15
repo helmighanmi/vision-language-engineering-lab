@@ -1,6 +1,7 @@
 # Tests for documents extended
 from collections.abc import Sequence
 from pathlib import Path
+
 from vlm_engineering.documents.visual_analysis import analyze_visual_document
 
 
