@@ -24,14 +24,14 @@ def generation_model(config: ServiceConfig) -> str:
 def embedding_model(config: ServiceConfig) -> str | None:
     """Return the embedding label, or ``None`` when the preset is unsupported."""
     if config.vlm_provider == "openai-compatible":
-        return str(config.vlm_model)
+        return config.embedding_model or str(config.vlm_model)
     return _retrieval_model(config, "Embedding")
 
 
 def reranking_model(config: ServiceConfig) -> str | None:
     """Return the reranking label, or ``None`` when the preset is unsupported."""
     if config.vlm_provider == "openai-compatible":
-        return str(config.vlm_model)
+        return config.reranking_model or str(config.vlm_model)
     return _retrieval_model(config, "Reranker")
 
 

@@ -38,6 +38,13 @@ VLM_PROVIDER_ENV = "VLM_SERVICE_VLM_PROVIDER"
 VLM_BASE_URL_ENV = "VLM_SERVICE_VLM_BASE_URL"
 VLM_MODEL_ENV = "VLM_SERVICE_VLM_MODEL"
 VLM_API_KEY_ENV = "VLM_SERVICE_VLM_API_KEY"
+# Capability-specific remote provider settings (openai-compatible).
+EMBEDDING_BASE_URL_ENV = "VLM_SERVICE_EMBEDDING_BASE_URL"
+EMBEDDING_MODEL_ENV = "VLM_SERVICE_EMBEDDING_MODEL"
+EMBEDDING_API_KEY_ENV = "VLM_SERVICE_EMBEDDING_API_KEY"
+RERANKING_BASE_URL_ENV = "VLM_SERVICE_RERANKING_BASE_URL"
+RERANKING_MODEL_ENV = "VLM_SERVICE_RERANKING_MODEL"
+RERANKING_API_KEY_ENV = "VLM_SERVICE_RERANKING_API_KEY"
 MODEL_SIZE_ENV = "VLM_SERVICE_MODEL_SIZE"
 MODEL_ID_ENV = "VLM_SERVICE_MODEL_ID"
 MODEL_PATH_ENV = "VLM_SERVICE_MODEL_PATH"
@@ -159,6 +166,12 @@ class ServiceConfig:
     vlm_base_url: str | None = None
     vlm_model: str | None = None
     vlm_api_key: str | None = field(default=None, repr=False)
+    embedding_base_url: str | None = None
+    embedding_model: str | None = None
+    embedding_api_key: str | None = field(default=None, repr=False)
+    reranking_base_url: str | None = None
+    reranking_model: str | None = None
+    reranking_api_key: str | None = field(default=None, repr=False)
     model_size: str | None = None
     model_id: str | None = None
     model_path: Path | None = None
@@ -257,6 +270,20 @@ class ServiceConfig:
                     f"{VLM_BASE_URL_ENV}, {VLM_MODEL_ENV} and {VLM_API_KEY_ENV} "
                     f"are only valid with {VLM_PROVIDER_ENV}=openai-compatible."
                 )
+            # Dedicated remote embedding/reranking settings are only meaningful
+            # with openai-compatible provider as well.
+            for name, value in (
+                (EMBEDDING_BASE_URL_ENV, self.embedding_base_url),
+                (EMBEDDING_MODEL_ENV, self.embedding_model),
+                (EMBEDDING_API_KEY_ENV, self.embedding_api_key),
+                (RERANKING_BASE_URL_ENV, self.reranking_base_url),
+                (RERANKING_MODEL_ENV, self.reranking_model),
+                (RERANKING_API_KEY_ENV, self.reranking_api_key),
+            ):
+                if value is not None:
+                    raise InputValidationError(
+                        f"{name} is only valid with {VLM_PROVIDER_ENV}=openai-compatible."
+                    )
             return
         if not isinstance(self.vlm_base_url, str) or not self.vlm_base_url.strip():
             raise InputValidationError(
@@ -273,6 +300,42 @@ class ServiceConfig:
             not isinstance(self.vlm_api_key, str) or not self.vlm_api_key.strip()
         ):
             raise InputValidationError(f"{VLM_API_KEY_ENV} must not be empty.")
+        # Validate dedicated embedding remote settings (base_url requires model).
+        if self.embedding_base_url is not None or self.embedding_model is not None:
+            if not isinstance(self.embedding_base_url, str) or not self.embedding_base_url.strip():
+                raise InputValidationError(
+                    f"{EMBEDDING_MODEL_ENV} requires {EMBEDDING_BASE_URL_ENV}."
+                )
+            if not isinstance(self.embedding_model, str) or not self.embedding_model.strip():
+                raise InputValidationError(
+                    f"{EMBEDDING_BASE_URL_ENV} requires {EMBEDDING_MODEL_ENV}."
+                )
+            embed_scheme = urlparse(self.embedding_base_url).scheme
+            if embed_scheme not in ("http", "https"):
+                raise InputValidationError(f"{EMBEDDING_BASE_URL_ENV} must be an http(s) URL.")
+            if self.embedding_api_key is not None and (
+                not isinstance(self.embedding_api_key, str)
+                or not self.embedding_api_key.strip()
+            ):
+                raise InputValidationError(f"{EMBEDDING_API_KEY_ENV} must not be empty.")
+        # Validate dedicated reranking remote settings.
+        if self.reranking_base_url is not None or self.reranking_model is not None:
+            if not isinstance(self.reranking_base_url, str) or not self.reranking_base_url.strip():
+                raise InputValidationError(
+                    f"{RERANKING_MODEL_ENV} requires {RERANKING_BASE_URL_ENV}."
+                )
+            if not isinstance(self.reranking_model, str) or not self.reranking_model.strip():
+                raise InputValidationError(
+                    f"{RERANKING_BASE_URL_ENV} requires {RERANKING_MODEL_ENV}."
+                )
+            rerank_scheme = urlparse(self.reranking_base_url).scheme
+            if rerank_scheme not in ("http", "https"):
+                raise InputValidationError(f"{RERANKING_BASE_URL_ENV} must be an http(s) URL.")
+            if self.reranking_api_key is not None and (
+                not isinstance(self.reranking_api_key, str)
+                or not self.reranking_api_key.strip()
+            ):
+                raise InputValidationError(f"{RERANKING_API_KEY_ENV} must not be empty.")
 
     @classmethod
     def from_env(cls, environ: Mapping[str, str] | None = None) -> "ServiceConfig":
@@ -306,6 +369,12 @@ class ServiceConfig:
             vlm_base_url=_read(source, VLM_BASE_URL_ENV),
             vlm_model=_read(source, VLM_MODEL_ENV),
             vlm_api_key=_read(source, VLM_API_KEY_ENV),
+            embedding_base_url=_read(source, EMBEDDING_BASE_URL_ENV),
+            embedding_model=_read(source, EMBEDDING_MODEL_ENV),
+            embedding_api_key=_read(source, EMBEDDING_API_KEY_ENV),
+            reranking_base_url=_read(source, RERANKING_BASE_URL_ENV),
+            reranking_model=_read(source, RERANKING_MODEL_ENV),
+            reranking_api_key=_read(source, RERANKING_API_KEY_ENV),
             model_size=_read(source, MODEL_SIZE_ENV),
             model_id=_read(source, MODEL_ID_ENV),
             model_path=_parse_path(raw) if (raw := _read(source, MODEL_PATH_ENV)) else None,

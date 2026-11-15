@@ -157,10 +157,15 @@ class ServiceRuntime:
         if config.vlm_provider == "openai-compatible":
             from ..providers.openai_compatible import OpenAICompatibleEmbeddingProvider
 
+            # Use dedicated embedding remote settings when configured, falling
+            # back to the shared generation settings.
+            base_url = config.embedding_base_url or config.vlm_base_url
+            model = config.embedding_model or config.vlm_model
+            api_key = config.embedding_api_key or config.vlm_api_key
             return OpenAICompatibleEmbeddingProvider(
-                base_url=str(config.vlm_base_url),
-                model=str(config.vlm_model),
-                api_key=config.vlm_api_key,
+                base_url=str(base_url),
+                model=str(model),
+                api_key=api_key,
                 timeout=config.request_timeout,
             )
         from ..providers.qwen import QwenEmbeddingProvider
@@ -192,10 +197,15 @@ class ServiceRuntime:
         if config.vlm_provider == "openai-compatible":
             from ..providers.openai_compatible import OpenAICompatibleRerankerProvider
 
+            # Use dedicated reranking remote settings when configured, falling
+            # back to the shared generation settings.
+            base_url = config.reranking_base_url or config.vlm_base_url
+            model = config.reranking_model or config.vlm_model
+            api_key = config.reranking_api_key or config.vlm_api_key
             return OpenAICompatibleRerankerProvider(
-                base_url=str(config.vlm_base_url),
-                model=str(config.vlm_model),
-                api_key=config.vlm_api_key,
+                base_url=str(base_url),
+                model=str(model),
+                api_key=api_key,
                 timeout=config.request_timeout,
                 fallback_to_local=False,
             )
