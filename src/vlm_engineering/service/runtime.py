@@ -41,12 +41,25 @@ _STORES_HINT = (
 )
 
 
-def build_store(kind: str, *, path: str | Path | None = None, **options: Any) -> "VectorStore":
-    """Instantiate a vector store by name without importing adapters eagerly."""
+def build_store(
+    kind: str,
+    *,
+    path: str | Path | None = None,
+    load_path: str | Path | None = None,
+    **options: Any,
+) -> "VectorStore":
+    """Instantiate a vector store by name without importing adapters eagerly.
+
+    When ``load_path`` is provided for a memory store, the store is restored
+    from a previously persisted snapshot before being returned.
+    """
     if kind == "memory":
         from ..vectorstore.memory import MemoryVectorStore
 
-        return MemoryVectorStore()
+        store = MemoryVectorStore()
+        if load_path is not None:
+            store.load(load_path)
+        return store
     if kind == "sqlite-vec":
         if path is None:
             raise InputValidationError("sqlite-vec stores require a path.")
@@ -264,7 +277,12 @@ class ServiceRuntime:
     # -- Vector stores -----------------------------------------------------
 
     def store(
-        self, kind: str = "memory", *, path: str | Path | None = None, **options: Any
+        self,
+        kind: str = "memory",
+        *,
+        path: str | Path | None = None,
+        load_path: str | Path | None = None,
+        **options: Any,
     ) -> "VectorStore":
         """Return a store by kind, constructing and caching it on first use.
 
@@ -274,10 +292,20 @@ class ServiceRuntime:
         provided = self._provided_stores.get(kind)
         if provided is not None:
             return provided
-        key = (kind, str(path) if path is not None else None)
+        key = (
+            kind,
+            str(path) if path is not None else None,
+            str(load_path) if load_path is not None else None,
+        )
         with self._lock:
             if key not in self._built_stores:
-                self._built_stores[key] = build_store(kind, path=path, **options)
+                build_kwargs: dict[str, Any] = {"kind": kind}
+                if path is not None:
+                    build_kwargs["path"] = path
+                if load_path is not None:
+                    build_kwargs["load_path"] = load_path
+                build_kwargs.update(options)
+                self._built_stores[key] = build_store(**build_kwargs)
             return self._built_stores[key]
 
     def configured_store(self) -> "VectorStore":
@@ -295,6 +323,8 @@ class ServiceRuntime:
                 api_key=self.config.qdrant_api_key,
                 https=self.config.qdrant_https,
             )
+        if kind == "memory":
+            return self.store(kind, load_path=self.config.store_load_path)
         return self.store(kind)
 
     # -- Lifecycle ---------------------------------------------------------

@@ -51,6 +51,7 @@ MODEL_PATH_ENV = "VLM_SERVICE_MODEL_PATH"
 REQUEST_TIMEOUT_ENV = "VLM_SERVICE_REQUEST_TIMEOUT"
 STORE_ENV = "VLM_SERVICE_STORE"
 STORE_PATH_ENV = "VLM_SERVICE_STORE_PATH"
+STORE_LOAD_PATH_ENV = "VLM_SERVICE_STORE_LOAD_PATH"
 QDRANT_HOST_ENV = "VLM_SERVICE_QDRANT_HOST"
 QDRANT_PORT_ENV = "VLM_SERVICE_QDRANT_PORT"
 QDRANT_COLLECTION_ENV = "VLM_SERVICE_QDRANT_COLLECTION"
@@ -178,6 +179,7 @@ class ServiceConfig:
     request_timeout: float = DEFAULT_REQUEST_TIMEOUT
     store: str = "memory"
     store_path: str = "index"
+    store_load_path: str | None = None
     qdrant_host: str = "localhost"
     qdrant_port: int = 6333
     qdrant_collection: str = "vlm_engineering"
@@ -227,6 +229,12 @@ class ServiceConfig:
         store_path = Path(self.store_path)
         if store_path.is_absolute() or ".." in store_path.parts:
             raise InputValidationError(f"{STORE_PATH_ENV} must be a relative path without '..'.")
+        if self.store_load_path is not None:
+            if not isinstance(self.store_load_path, str) or not self.store_load_path.strip():
+                raise InputValidationError(f"{STORE_LOAD_PATH_ENV} must be a non-empty string.")
+            load_path = Path(self.store_load_path)
+            if load_path.is_absolute() or ".." in load_path.parts:
+                raise InputValidationError(f"{STORE_LOAD_PATH_ENV} must be a relative path without '..'.")
         if not isinstance(self.qdrant_host, str) or not self.qdrant_host.strip():
             raise InputValidationError(f"{QDRANT_HOST_ENV} must be a non-empty string.")
         if type(self.qdrant_port) is not int or not 1 <= self.qdrant_port <= 65535:
@@ -383,6 +391,7 @@ class ServiceConfig:
             ),
             store=(_read(source, STORE_ENV) or "memory").lower(),
             store_path=_read(source, STORE_PATH_ENV) or "index",
+            store_load_path=_read(source, STORE_LOAD_PATH_ENV),
             qdrant_host=_read(source, QDRANT_HOST_ENV) or "localhost",
             qdrant_port=_parse_int(_read(source, QDRANT_PORT_ENV) or "6333", QDRANT_PORT_ENV),
             qdrant_collection=_read(source, QDRANT_COLLECTION_ENV) or "vlm_engineering",
