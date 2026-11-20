@@ -73,6 +73,7 @@ def test_openapi_schema_lists_public_routes(client: TestClient) -> None:
         "/v1/models",
         "/v1/describe",
         "/v1/analyze",
+        "/v1/extract",
         "/v1/embed",
         "/v1/rerank",
         "/v1/query",
@@ -375,6 +376,66 @@ def test_analyze_is_an_alias_of_describe(tmp_path: Path) -> None:
     response = harness.client.post("/v1/analyze", json={"image": str(harness.image)})
     assert response.status_code == 200
     assert harness.generator.generate_calls
+
+
+class _FakeExtractionGenerator:
+    def __init__(self, response: str) -> None:
+        self.response = response
+        self.calls: list[dict[str, object]] = []
+
+    def generate(
+        self,
+        images: list[str],
+        prompt: str,
+        *,
+        max_new_tokens: int = 512,
+        system_prompt: str | None = None,
+    ) -> str:
+        self.calls.append(
+            {
+                "images": list(images),
+                "prompt": prompt,
+                "max_new_tokens": max_new_tokens,
+                "system_prompt": system_prompt,
+            }
+        )
+        return self.response
+
+
+def test_extract_returns_template_guided_json(tmp_path: Path) -> None:
+    generator = _FakeExtractionGenerator('{"title": "Invoice", "total": 12.5}')
+    harness = _Harness(tmp_path, generator=generator)
+    response = harness.client.post(
+        "/v1/extract",
+        json={
+            "image": str(harness.image),
+            "template": {"title": "", "total": 0.0},
+            "instructions": "Use exact values.",
+        },
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["data"] == {"title": "Invoice", "total": 12.5}
+    assert body["markdown"] is None
+    assert "Use exact values." in generator.calls[0]["prompt"]
+
+
+def test_extract_markdown_mode(tmp_path: Path) -> None:
+    generator = _FakeExtractionGenerator("# Page\n\nSome text.")
+    harness = _Harness(tmp_path, generator=generator)
+    response = harness.client.post(
+        "/v1/extract", json={"image": str(harness.image), "markdown": True}
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["markdown"] == "# Page\n\nSome text."
+    assert response.json()["data"] is None
+
+
+def test_extract_requires_template_unless_markdown(tmp_path: Path) -> None:
+    harness = _Harness(tmp_path)
+    response = harness.client.post("/v1/extract", json={"image": str(harness.image)})
+    assert response.status_code == 422
+    assert not harness.generator.generate_calls
 
 
 def test_describe_rejects_paths_outside_media_root(tmp_path: Path) -> None:

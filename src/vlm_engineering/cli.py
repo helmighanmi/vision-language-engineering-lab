@@ -22,6 +22,7 @@ from .documents.schemas import NativePageContent
 from .documents.visual_analysis import analyze_visual_document
 from .evaluation import evaluate, load_chunks, load_evaluation_cases
 from .exceptions import InputValidationError, OptionalDependencyError, VLMEngineeringError
+from .extraction import NuExtract3Extractor, create_nuextract3_extractor
 from .inputs import normalize_input
 from .operational import backend_errors
 from .qwen.downloader import download_model_snapshot
@@ -474,6 +475,40 @@ def build_parser() -> argparse.ArgumentParser:
     add_retrieval_args(index)
     index.set_defaults(func=cmd_index)
 
+    extract = sub.add_parser(
+        "extract",
+        help="NuExtract3 document extraction (template-guided JSON or Markdown).",
+    )
+    extract.add_argument("image", help="Image/document URL, or a local path with --local.")
+    extract.add_argument(
+        "--template",
+        help="JSON object, JSON string, or path to a .json file (required unless --markdown).",
+    )
+    extract.add_argument("--instructions", help="Optional task-specific instructions.")
+    extract.add_argument(
+        "--markdown",
+        action="store_true",
+        help="Extract the full document as Markdown instead of template-guided JSON.",
+    )
+    extract.add_argument(
+        "--base-url",
+        help="OpenAI-compatible server base URL, e.g. http://localhost:1234/v1 (LM Studio/vLLM/Ollama).",
+    )
+    extract.add_argument(
+        "--model",
+        help="Served model alias on the local server; defaults to NuExtract3.",
+    )
+    extract.add_argument(
+        "--local",
+        action="store_true",
+        help="Use a local Qwen model as the generator instead of an HTTP server.",
+    )
+    extract.add_argument("--max-new-tokens", type=int)
+    extract.add_argument("--enable-thinking", action="store_true")
+    extract.add_argument("--output", type=Path, help="Write the result to this file.")
+    add_model_args(extract)
+    extract.set_defaults(func=cmd_extract)
+
     return parser
 
 
@@ -590,6 +625,52 @@ def cmd_index(args: argparse.Namespace) -> int:
     target_store: Any = persistent_store if persistent_store is not None else store
     target_store.persist(args.output)
     print(f"indexed {len(chunks)} chunks -> {args.output}")
+    return 0
+
+
+def cmd_extract(args: argparse.Namespace) -> int:
+    """Run NuExtract3 template-guided or Markdown document extraction."""
+    if not args.markdown and not args.template:
+        raise InputValidationError("--template is required unless --markdown is set.")
+
+    if args.local:
+        generator: Any = _build_qwen(args)
+        extractor = NuExtract3Extractor(
+            generator,
+            max_new_tokens=args.max_new_tokens,
+        )
+    else:
+        if not args.base_url:
+            raise InputValidationError("Provide --base-url for a local server, or use --local.")
+        extractor = create_nuextract3_extractor(
+            base_url=args.base_url,
+            model=args.model,
+            max_new_tokens=args.max_new_tokens,
+        )
+
+    if args.markdown:
+        output = extractor.extract_markdown(
+            [args.image],
+            instructions=args.instructions,
+            enable_thinking=args.enable_thinking,
+            max_new_tokens=args.max_new_tokens,
+        )
+    else:
+        data = extractor.extract(
+            [args.image],
+            args.template,
+            instructions=args.instructions,
+            enable_thinking=args.enable_thinking,
+            max_new_tokens=args.max_new_tokens,
+        )
+        output = json.dumps(data, ensure_ascii=False, indent=2)
+
+    if args.output:
+        Path(args.output).parent.mkdir(parents=True, exist_ok=True)
+        Path(args.output).write_text(output + "\n", encoding="utf-8")
+        print(args.output)
+    else:
+        print(output)
     return 0
 
 

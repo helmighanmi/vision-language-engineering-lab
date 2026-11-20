@@ -24,6 +24,7 @@ from .routers import (
     describe,
     embed,
     evaluate,
+    extract,
     health,
     index,
     ingest,
@@ -82,7 +83,7 @@ def create_app(config: ServiceConfig | None = None) -> FastAPI:
 
     protected = [Depends(require_api_key)]
     application.include_router(health.router)
-    for module in (models, describe, embed, rerank, query, ingest, index, evaluate, jobs):
+    for module in (models, describe, embed, rerank, query, extract, ingest, index, evaluate, jobs):
         application.include_router(module.router, dependencies=protected)
     return application
 

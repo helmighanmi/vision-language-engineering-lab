@@ -377,6 +377,79 @@ vlm-lab validate-config \
   configs/qwen_multimodal_rag.example.yaml
 ```
 
+### Example 10 — NuExtract3 document extraction
+
+[NuExtract3](https://huggingface.co/numind/NuExtract3) is a ~4B
+Qwen3.5-based vision-language model specialised for document understanding.
+It is integrated as a **separate extraction capability**, not as another
+`Qwen3-VL Instruct` preset, because it is fine-tuned for two specific jobs:
+
+1. **Template-guided JSON extraction** — you supply the exact JSON shape you
+   want and optional instructions; NuExtract3 returns a matching JSON object.
+2. **Content extraction** — transcribe a whole page to clean Markdown
+   (OCR-like output that preserves tables, headings and reading order).
+
+Serve the model locally with the same OpenAI-compatible endpoint used by the
+`App_NuExtract3` project (LM Studio, vLLM or Ollama), then use the extractor:
+
+```python
+from vlm_engineering.extraction import create_nuextract3_extractor
+
+extractor = create_nuextract3_extractor(
+    base_url="http://localhost:1234/v1",  # LM Studio / vLLM / Ollama
+    model="NuExtract3",                    # whatever alias your server exposes
+)
+
+# 1. Template-guided JSON
+invoice = extractor.extract(
+    ["https://your-server.example.com/invoice.png"],
+    {"invoice_number": "", "total": 0.0, "line_items": []},
+    instructions="Amounts must be numbers without currency symbols.",
+)
+
+# 2. Full-page Markdown
+markdown = extractor.extract_markdown(
+    ["https://your-server.example.com/page.png"],
+)
+```
+
+The CLI exposes the same capability:
+
+```bash
+# JSON extraction from a template file
+vlm-lab extract https://your-server.example.com/invoice.png \
+  --base-url http://localhost:1234/v1 \
+  --template schema.json \
+  --instructions "Use exact values from the page." \
+  --output extracted.json
+
+# Markdown content extraction
+vlm-lab extract https://your-server.example.com/page.png \
+  --base-url http://localhost:1234/v1 \
+  --markdown
+```
+
+The HTTP service also exposes `POST /v1/extract` (guarded like the other
+`/v1` routes). It reuses the service's configured generator, so setting
+`VLM_SERVICE_VLM_PROVIDER=openai-compatible` with `VLM_SERVICE_VLM_BASE_URL`
+pointing at your local NuExtract3 server is enough:
+
+```json
+{
+  "image": "scanned-page.png",
+  "template": {"title": "", "total": 0.0},
+  "instructions": "Preserve exact numbers."
+}
+```
+
+Set `"markdown": true` instead of `template` for the Markdown mode.
+
+> **Important GGUF gotcha:** when serving a Qwen-VL-family GGUF through
+> llama-server / LM Studio, start the server with `--image-min-tokens 8192`.
+> Without it, decimal numbers in extracted fields can be silently wrong.
+> `OpenAICompatibleVLMProvider` requires images that the *server* can reach, so
+> pass HTTP URLs (or local paths only when the server shares your filesystem).
+
 For complete workflows, see [`scenarios/README.md`](scenarios/README.md).
 
 ---
@@ -415,6 +488,12 @@ Multimodal RAG
    -> reranking
    -> original text/images
    -> Qwen3-VL answer
+
+NuExtract3 extraction
+   -> document image + JSON template (or Markdown mode)
+   -> local OpenAI-compatible server (LM Studio / vLLM / Ollama)
+   -> validated structured JSON / Markdown
+   -> reusable in RAG ingestion
 ```
 
 The project intentionally separates:
@@ -1886,6 +1965,7 @@ vision-language-engineering-lab/
 - Qwen3-VL 2B / 4B / 8B generation
 - image description and visual question answering
 - structured visual/document analysis
+- NuExtract3 template-guided JSON and Markdown document extraction (Python, CLI, HTTP)
 - traceable visual chunks
 - text-only visual RAG
 - Qwen3-VL multimodal embeddings

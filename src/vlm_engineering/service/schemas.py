@@ -124,6 +124,49 @@ class DescribeResponse(BaseModel):
     model: str
 
 
+# -- NuExtract3 extraction ---------------------------------------------------
+
+class ExtractRequest(BaseModel):
+    """Request for NuExtract3 template-guided or Markdown extraction."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    image: str = Field(..., description="Local image path or HTTP(S) URL.")
+    template: Optional[dict[str, Any]] = Field(
+        default=None,
+        description="JSON object describing the fields to extract (required unless markdown).",
+    )
+    markdown: bool = Field(
+        default=False, description="Extract full document content as Markdown."
+    )
+    instructions: Optional[str] = None
+    enable_thinking: bool = False
+    max_new_tokens: int = Field(default=2048, gt=0, le=8192)
+
+    @field_validator("image")
+    @classmethod
+    def _image_not_empty(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("image must not be empty.")
+        return value
+
+    @model_validator(mode="after")
+    def _template_or_markdown(self) -> "ExtractRequest":
+        if not self.markdown and not self.template:
+            raise ValueError("provide a non-empty template or set markdown=true.")
+        return self
+
+
+class ExtractResponse(BaseModel):
+    """Response from NuExtract3 extraction."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    data: Optional[dict[str, Any]] = None
+    markdown: Optional[str] = None
+    model: str
+
+
 # -- Embed ------------------------------------------------------------------
 
 class EmbedRequest(BaseModel):

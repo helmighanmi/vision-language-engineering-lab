@@ -15,6 +15,13 @@ from .documents.schemas import (
     VisualChunk,
     VisualRelation,
 )
+from .extraction import (
+    NUEXTRACT3_MODEL,
+    NuExtract3Extractor,
+    NuExtract3ModelPreset,
+    create_nuextract3_extractor,
+    load_extraction_template,
+)
 from .qwen.model import QwenVLModel
 from .qwen.registry import (
     DEFAULT_QWEN_MODEL_SIZE,
@@ -32,6 +39,9 @@ __all__ = [
     "CLIPEncoder",
     "DEFAULT_QWEN_MODEL_SIZE",
     "NativePageContent",
+    "NUEXTRACT3_MODEL",
+    "NuExtract3Extractor",
+    "NuExtract3ModelPreset",
     "QWEN3_VL_INSTRUCT_MODELS",
     "QwenModelPreset",
     "QwenVLModel",
@@ -43,6 +53,8 @@ __all__ = [
     "VisualRAGPipeline",
     "VisualRelation",
     "ZeroShotPrediction",
+    "create_nuextract3_extractor",
     "fuse_native_and_visual",
+    "load_extraction_template",
     "resolve_qwen_model_id",
 ]

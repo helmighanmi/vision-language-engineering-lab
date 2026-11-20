@@ -50,6 +50,7 @@ def test_cli_exposes_expected_commands() -> None:
     assert set(choices) == {
         "describe",
         "analyze",
+        "extract",
         "chunk",
         "download-model",
         "models",
