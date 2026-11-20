@@ -21,8 +21,8 @@ Ship the HTTP API as an optional `[service]` extra under
   `model_path` overrides are rejected with `400` instead of triggering a
   reload or being silently ignored.
 - **Synchronous for single-shot work, jobs for pipelines.** Describe,
-  analyze, embed, rerank and query answer in the request. Ingest, index
-  and evaluate run as in-process background jobs with polling and
+  analyze, embed, rerank, query and extract answer in the request. Ingest,
+  index and evaluate run as in-process background jobs with polling and
   deletion.
 - **Plain uvicorn, one process per replica.** No gunicorn worker fan-out
   and no distributed state. Authentication, rate limiting, request ids,

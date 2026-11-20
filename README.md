@@ -390,7 +390,12 @@ It is integrated as a **separate extraction capability**, not as another
    (OCR-like output that preserves tables, headings and reading order).
 
 Serve the model locally with the same OpenAI-compatible endpoint used by the
-`App_NuExtract3` project (LM Studio, vLLM or Ollama), then use the extractor:
+`App_NuExtract3` project (LM Studio, vLLM or Ollama), then use the extractor
+(install the HTTP provider extra first):
+
+```bash
+pip install -e ".[openai-compatible]"
+```
 
 ```python
 from vlm_engineering.extraction import create_nuextract3_extractor
@@ -1348,6 +1353,7 @@ POST /v1/describe            image -> text (alias: /v1/analyze)
 POST /v1/embed               text/image -> normalized vectors
 POST /v1/rerank              rank candidate documents
 POST /v1/query               embed -> search -> rerank -> answer
+POST /v1/extract             document -> template-guided JSON or Markdown
 
 POST /v1/ingest              202 + job id (images -> VisualChunk JSONL)
 POST /v1/index               202 + job id (chunks -> vector store)
