@@ -417,7 +417,9 @@ def test_extract_returns_template_guided_json(tmp_path: Path) -> None:
     body = response.json()
     assert body["data"] == {"title": "Invoice", "total": 12.5}
     assert body["markdown"] is None
-    assert "Use exact values." in generator.calls[0]["prompt"]
+    prompt = generator.calls[0]["prompt"]
+    assert isinstance(prompt, str)
+    assert "Use exact values." in prompt
 
 
 def test_extract_markdown_mode(tmp_path: Path) -> None:

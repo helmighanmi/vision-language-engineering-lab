@@ -14,7 +14,7 @@ Research Profile: https://www.researchgate.net/profile/Ghanmi-Helmi
 
 The implementation lives under `src/vlm_engineering/`. Notebooks are analysis/demo clients, `examples/` provides small API examples, and `scenarios/` contains end-to-end application recipes.
 
-> **v0.4.0 compatibility target:** Python 3.11, 3.12, and 3.13.
+> **v0.5.0 compatibility target:** Python 3.11, 3.12, and 3.13.
 
 v0.3.1 introduced the two-stage multimodal retrieval stack:
 
@@ -390,7 +390,12 @@ It is integrated as a **separate extraction capability**, not as another
    (OCR-like output that preserves tables, headings and reading order).
 
 Serve the model locally with the same OpenAI-compatible endpoint used by the
-`App_NuExtract3` project (LM Studio, vLLM or Ollama), then use the extractor:
+`App_NuExtract3` project (LM Studio, vLLM or Ollama), then use the extractor
+(install the HTTP provider extra first):
+
+```bash
+pip install -e ".[openai-compatible]"
+```
 
 ```python
 from vlm_engineering.extraction import create_nuextract3_extractor
@@ -1275,10 +1280,11 @@ rather than ambiguous bare path strings.
 
 ---
 
-## 14. HTTP service API — v0.4.0
+## 14. HTTP service API — v0.5.0
 
 The package ships an optional FastAPI service that exposes generation,
-embedding, reranking, retrieval, ingestion, indexing and evaluation over HTTP.
+embedding, reranking, retrieval, ingestion, indexing, evaluation and
+document extraction over HTTP.
 It is a thin adapter over the package APIs: no capability exists only in the
 service.
 
@@ -1348,6 +1354,7 @@ POST /v1/describe            image -> text (alias: /v1/analyze)
 POST /v1/embed               text/image -> normalized vectors
 POST /v1/rerank              rank candidate documents
 POST /v1/query               embed -> search -> rerank -> answer
+POST /v1/extract             document -> template-guided JSON or Markdown
 
 POST /v1/ingest              202 + job id (images -> VisualChunk JSONL)
 POST /v1/index               202 + job id (chunks -> vector store)
@@ -1650,20 +1657,20 @@ docker compose run --rm \
 
 ```bash
 docker build \
-  -t vision-language-engineering-lab:0.4.0 \
+  -t vision-language-engineering-lab:0.5.0 \
   .
 ```
 
 ```bash
 docker run --rm \
-  vision-language-engineering-lab:0.4.0 \
+  vision-language-engineering-lab:0.5.0 \
   models
 ```
 
 ```bash
 docker run --rm -p 8000:8000 \
   -v "$PWD/data:/app/data:ro" \
-  vision-language-engineering-lab:0.4.0 \
+  vision-language-engineering-lab:0.5.0 \
   serve --host 0.0.0.0 --port 8000
 ```
 
@@ -1701,15 +1708,17 @@ The project uses:
 | `pip check` | installed dependency consistency |
 | `pip-audit` | known dependency-vulnerability auditing |
 
-For the v0.4.0 release branch, deterministic validation reached:
+For the v0.5.0 release branch, deterministic validation reached:
 
 ```text
-742 passed
+737 passed
 2 deselected (opt-in real-model tests)
-88% coverage
+83% coverage
 pip check: no broken requirements
-pip-audit: no known vulnerabilities
 ```
+
+Dependency auditing runs in CI (`pip-audit`); local results depend on the
+installed environment.
 
 The deselected tests are resource-heavy / opt-in real-model validations rather than normal CI tests.
 

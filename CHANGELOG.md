@@ -8,6 +8,30 @@ Research Profile: https://www.researchgate.net/profile/Ghanmi-Helmi
 
 # Changelog
 
+## 0.5.0 — 2026-11-20: NuExtract3 document extraction
+
+### Document extraction
+
+- Add `vlm_engineering.extraction.NuExtract3Extractor`, a thin
+  template-guided document-extraction capability over an injected
+  generator. It composes the NuExtract3 prompt, tolerates fenced or
+  prose-wrapped JSON, retries malformed output, and validates the parsed
+  object.
+- Add `NuExtract3ModelPreset`/`NUEXTRACT3_MODEL` metadata kept separate
+  from the Qwen3-VL Instruct registry, plus `load_extraction_template()`
+  for dict, JSON-string and `.json`-file templates.
+- Add `extract_markdown()` for full-page Markdown/OCR-style content
+  extraction, and `create_nuextract3_extractor()` for LM Studio, vLLM,
+  Ollama and any OpenAI-compatible `/v1/chat/completions` server.
+- Add `vlm-lab extract` (`--template`, `--markdown`, `--instructions`,
+  `--base-url`, `--local`, `--output`) and `POST /v1/extract` on the HTTP
+  service (template-guided JSON or Markdown, media-root policy enforced,
+  generation semaphore shared with the other VLM routes).
+- Document the model, the GGUF `--image-min-tokens 8192` gotcha, and the
+  Python/CLI/HTTP workflows in README example 10.
+- No new third-party dependency: extraction reuses the existing Qwen and
+  OpenAI-compatible providers.
+
 ## 0.4.0 — 2026-11-13: HTTP service API and retrieval platform
 
 This release covers everything merged after 0.3.2: the v0.4 retrieval
