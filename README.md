@@ -14,7 +14,7 @@ Research Profile: https://www.researchgate.net/profile/Ghanmi-Helmi
 
 The implementation lives under `src/vlm_engineering/`. Notebooks are analysis/demo clients, `examples/` provides small API examples, and `scenarios/` contains end-to-end application recipes.
 
-> **v0.4.0 compatibility target:** Python 3.11, 3.12, and 3.13.
+> **v0.5.0 compatibility target:** Python 3.11, 3.12, and 3.13.
 
 v0.3.1 introduced the two-stage multimodal retrieval stack:
 
@@ -1280,10 +1280,11 @@ rather than ambiguous bare path strings.
 
 ---
 
-## 14. HTTP service API — v0.4.0
+## 14. HTTP service API — v0.5.0
 
 The package ships an optional FastAPI service that exposes generation,
-embedding, reranking, retrieval, ingestion, indexing and evaluation over HTTP.
+embedding, reranking, retrieval, ingestion, indexing, evaluation and
+document extraction over HTTP.
 It is a thin adapter over the package APIs: no capability exists only in the
 service.
 
@@ -1656,20 +1657,20 @@ docker compose run --rm \
 
 ```bash
 docker build \
-  -t vision-language-engineering-lab:0.4.0 \
+  -t vision-language-engineering-lab:0.5.0 \
   .
 ```
 
 ```bash
 docker run --rm \
-  vision-language-engineering-lab:0.4.0 \
+  vision-language-engineering-lab:0.5.0 \
   models
 ```
 
 ```bash
 docker run --rm -p 8000:8000 \
   -v "$PWD/data:/app/data:ro" \
-  vision-language-engineering-lab:0.4.0 \
+  vision-language-engineering-lab:0.5.0 \
   serve --host 0.0.0.0 --port 8000
 ```
 
@@ -1707,15 +1708,17 @@ The project uses:
 | `pip check` | installed dependency consistency |
 | `pip-audit` | known dependency-vulnerability auditing |
 
-For the v0.4.0 release branch, deterministic validation reached:
+For the v0.5.0 release branch, deterministic validation reached:
 
 ```text
-742 passed
+737 passed
 2 deselected (opt-in real-model tests)
-88% coverage
+83% coverage
 pip check: no broken requirements
-pip-audit: no known vulnerabilities
 ```
+
+Dependency auditing runs in CI (`pip-audit`); local results depend on the
+installed environment.
 
 The deselected tests are resource-heavy / opt-in real-model validations rather than normal CI tests.
 

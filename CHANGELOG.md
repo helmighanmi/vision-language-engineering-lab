@@ -8,7 +8,7 @@ Research Profile: https://www.researchgate.net/profile/Ghanmi-Helmi
 
 # Changelog
 
-## Unreleased
+## 0.5.0 — 2026-11-20: NuExtract3 document extraction
 
 ### Document extraction
 
